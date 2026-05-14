@@ -1,7 +1,9 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import LoginScreen from './screens/LoginScreen';
+import SettingsScreen from './screens/SettingsScreen';
 import './App.css';
+import DailyChecklistScreen from './screens/DailyChecklistScreen';
 function PlaceholderScreen({ name }) {
 const { session } = useApp();
 return (
@@ -39,15 +41,15 @@ return (
 );
 }
 function AppRouter() {
-const { session, currentScreen } = useApp();
+const { session, currentScreen, language } = useApp();
 if (!session) return <LoginScreen />;
 const screens = {
 ownerDashboard:<PlaceholderScreen name="Owner Dashboard" />,
-dailyChecklist:<PlaceholderScreen name="Daily Checklist" />,
+dailyChecklist:<DailyChecklistScreen currentUser={session} language={language} />,
 orderEntry:<PlaceholderScreen name="Order Entry" />,
 recipes:<PlaceholderScreen name="Recipe Viewer" />,
 scheduling:<PlaceholderScreen name="Scheduling" />,
-settings:<PlaceholderScreen name="Settings" />,
+settings:<SettingsScreen />,
 training:<PlaceholderScreen name="Training Portal" />,
 };
 return (

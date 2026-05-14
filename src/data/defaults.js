@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS = {
 export const DEFAULT_EMPLOYEES = [
   {
     id: 'emp-owner-001',
-    name: 'Ryan Rodriguez',
+    name: 'Ryan Rodriquez',
     role: 'owner',
     pin: '1943',
     active: true,

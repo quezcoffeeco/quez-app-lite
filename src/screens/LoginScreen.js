@@ -31,7 +31,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (!selectedEmployeeId) return;
-    setLockoutState(getPinLockout(selectedEmployeeId));
+  setLockoutState(getPinLockout(selectedEmployeeId) || { attempts: 0, lockedUntil: null });
     setPin('');
     setError('');
   }, [selectedEmployeeId]);
