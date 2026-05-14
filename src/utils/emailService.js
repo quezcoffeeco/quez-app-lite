@@ -1,0 +1,204 @@
+// ============================================================
+// QUEZ APP LITE — Email Service
+// All EmailJS auto-send triggers
+// ============================================================
+// EmailJS credentials are stored in localStorage by the owner
+// during Settings setup (Session 3).
+// ============================================================
+
+import emailjs from 'emailjs-com';
+
+// Pull credentials from localStorage
+const getCredentials = () => {
+  const settings = JSON.parse(localStorage.getItem('quez_settings') || '{}');
+  return {
+    serviceId: settings.emailjsServiceId || '',
+    templateId: settings.emailjsTemplateId || '',
+    publicKey: settings.emailjsPublicKey || '',
+    ownerEmail: settings.ownerEmail || 'support@quezcoffeeco.com',
+  };
+};
+
+// ── Queue for offline support ─────────────────────────────
+// Emails queued when offline are stored and retried on next load.
+const QUEUE_KEY = 'quez_email_queue';
+
+const queueEmail = (params) => {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  queue.push({ params, queuedAt: new Date().toISOString() });
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+};
+
+export const flushEmailQueue = async () => {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  if (!queue.length) return;
+  const { serviceId, templateId, publicKey } = getCredentials();
+  if (!serviceId || !templateId || !publicKey) return;
+
+  const remaining = [];
+  for (const item of queue) {
+    try {
+      await emailjs.send(serviceId, templateId, item.params, publicKey);
+    } catch {
+      remaining.push(item);
+    }
+  }
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+};
+
+// ── Core send function ────────────────────────────────────
+const sendEmail = async (params) => {
+  const { serviceId, templateId, publicKey } = getCredentials();
+  if (!serviceId || !templateId || !publicKey) {
+    console.warn('EmailJS credentials not configured. Email queued.');
+    queueEmail(params);
+    return;
+  }
+  try {
+    await emailjs.send(serviceId, templateId, params, publicKey);
+  } catch (err) {
+    console.warn('EmailJS send failed — queuing for retry:', err);
+    queueEmail(params);
+  }
+};
+
+// ── Clock-In Email ────────────────────────────────────────
+export const sendClockInEmail = async ({ name, role, location, date, time }) => {
+  const { ownerEmail } = getCredentials();
+  await sendEmail({
+    to_email: ownerEmail,
+    subject: `[Quez] Clock-In — ${name} — ${date}`,
+    message: `CLOCK-IN RECORD
+═══════════════════════════════
+Employee:   ${name}
+Role:       ${role}
+Location:   ${location}
+Date:       ${date}
+Time:       ${time}
+═══════════════════════════════
+Quez Coffee Co. — Auto-Generated`,
+  });
+};
+
+// ── Clock-Out Email ───────────────────────────────────────
+export const sendClockOutEmail = async ({ name, role, location, clockInTime, clockOutTime, duration }) => {
+  const { ownerEmail } = getCredentials();
+  const date = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  await sendEmail({
+    to_email: ownerEmail,
+    subject: `[Quez] Clock-Out — ${name} — ${date}`,
+    message: `CLOCK-OUT RECORD
+═══════════════════════════════
+Employee:     ${name}
+Role:         ${role}
+Location:     ${location}
+Date:         ${date}
+Clock-In:     ${clockInTime}
+Clock-Out:    ${clockOutTime}
+Shift Length: ${duration}
+═══════════════════════════════
+Quez Coffee Co. — Auto-Generated`,
+  });
+};
+
+// ── Out-of-Range Alert Email (immediate, before submission) ──
+export const sendOutOfRangeAlert = async ({ operator, location, item, value, acceptableRange, section }) => {
+  const { ownerEmail } = getCredentials();
+  const now = new Date();
+  const date = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  await sendEmail({
+    to_email: ownerEmail,
+    subject: `⚠️ [Quez] OUT-OF-RANGE READING — ${item} — ${date}`,
+    message: `⚠️ OUT-OF-RANGE READING ALERT
+═══════════════════════════════
+Item:              ${item}
+Reading:           ${value}
+Acceptable Range:  ${acceptableRange}
+Section:           ${section}
+
+Operator:  ${operator}
+Location:  ${location}
+Date:      ${date}
+Time:      ${time}
+═══════════════════════════════
+A corrective action note is required before checklist submission.
+Quez Coffee Co. — Auto-Generated`,
+  });
+};
+
+// ── Full Daily Checklist Email ────────────────────────────
+export const sendDailyChecklistEmail = async ({ operator, location, date, sections, flaggedItems }) => {
+  const { ownerEmail } = getCredentials();
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+  // Build a readable log from all sections
+  let log = '';
+  for (const section of sections) {
+    log += `\n── ${section.sectionLabel.toUpperCase()} ──\n`;
+    for (const item of section.items) {
+      const val = item.value !== undefined && item.value !== '' ? item.value : '—';
+      const flag = item.flagged ? ' ⚠️ OUT OF RANGE' : '';
+      log += `  ${item.label}: ${val}${flag}\n`;
+      if (item.correctiveAction) {
+        log += `    → Corrective Action: ${item.correctiveAction}\n`;
+      }
+    }
+  }
+
+  const flagSummary = flaggedItems.length
+    ? `\n⚠️ FLAGGED ITEMS (${flaggedItems.length}):\n` + flaggedItems.map(f => `  • ${f.label}: ${f.value} (${f.acceptableRange})\n    → ${f.correctiveAction}`).join('\n')
+    : '\nNo flagged items.';
+
+  await sendEmail({
+    to_email: ownerEmail,
+    subject: `[Quez] Daily Checklist Submitted — ${operator} — ${date}`,
+    message: `DAILY CHECKLIST — SUBMISSION RECORD
+═══════════════════════════════════════
+Operator:   ${operator}
+Location:   ${location}
+Date:       ${date}
+Submitted:  ${time}
+═══════════════════════════════════════
+${flagSummary}
+═══════════════════════════════════════
+FULL CHECKLIST LOG:
+${log}
+═══════════════════════════════════════
+Quez Coffee Co. — Iowa DIAL Compliance Record
+Auto-Generated by Quez App Lite`,
+  });
+};
+
+// ── End of Day Drink Count Email ──────────────────────────
+export const sendDrinkCountEmail = async ({ operator, location, date, totalCups, drinkCounts }) => {
+  const { ownerEmail } = getCredentials();
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+  const breakdown = drinkCounts
+    .filter(d => d.count > 0)
+    .map(d => `  ${d.name}: ${d.count}`)
+    .join('\n');
+
+  await sendEmail({
+    to_email: ownerEmail,
+    subject: `[Quez] End of Day Count — ${totalCups} cups — ${date}`,
+    message: `END OF DAY DRINK COUNT
+═══════════════════════════════
+Operator:    ${operator}
+Location:    ${location}
+Date:        ${date}
+Submitted:   ${time}
+
+TOTAL CUPS SERVED: ${totalCups}
+
+DRINK BREAKDOWN:
+${breakdown || '  (no drinks entered)'}
+═══════════════════════════════
+Quez Coffee Co. — Auto-Generated`,
+  });
+};
