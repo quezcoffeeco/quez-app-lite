@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/quez-app-lite/static/css/main.eb0d04fa.css",
+    "main.js": "/quez-app-lite/static/js/main.3ee39b8a.js",
+    "index.html": "/quez-app-lite/index.html",
+    "main.eb0d04fa.css.map": "/quez-app-lite/static/css/main.eb0d04fa.css.map",
+    "main.3ee39b8a.js.map": "/quez-app-lite/static/js/main.3ee39b8a.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.eb0d04fa.css",
+    "static/js/main.3ee39b8a.js"
+  ]
+}
