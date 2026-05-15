@@ -8,7 +8,7 @@
 // every fresh deploy effectively rebuilds the cache anyway because
 // the JS/CSS filenames are hashed.
 // ============================================================
-const CACHE_VERSION = 'quez-v3';
+const CACHE_VERSION = 'quez-v4';
 const SCOPE = new URL('./', self.location.href).href;
 const SHELL_URLS = [
   SCOPE,
@@ -68,21 +68,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets — cache-first, then network. Cache successful responses
-  // so the hashed JS/CSS for the current deploy gets stored on first use.
+  // Static assets — NETWORK-FIRST so fresh deploys ship immediately when
+  // online. Fall back to the SW cache only if the network is unreachable.
+  // (Cache-first caused users to keep running an older bundle even after a
+  // deploy because their hashed JS file was already in the SW cache.)
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req)
-        .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
-            const clone = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(req, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-    })
+    fetch(req)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(req, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(req))
   );
 });
 
