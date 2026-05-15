@@ -632,8 +632,12 @@ export default function OwnerDashboard() {
       {/* ── Pre-Launch Timeline tile (owner only) ── */}
       {session?.role === 'owner' && (() => {
         const progress = getPreLaunchProgress();
-        const done = Object.values(progress).filter((v) => v && v.done).length;
-        const pct = PRELAUNCH_TOTAL > 0 ? Math.round((done / PRELAUNCH_TOTAL) * 100) : 0;
+        // Hidden tasks shouldn't count against the total — they're tasks the
+        // owner has marked irrelevant, not work that still needs doing.
+        const hidden = Object.values(progress).filter((v) => v && v.hidden).length;
+        const visible = Math.max(0, PRELAUNCH_TOTAL - hidden);
+        const done = Object.values(progress).filter((v) => v && v.done && !v.hidden).length;
+        const pct = visible > 0 ? Math.round((done / visible) * 100) : 0;
         return (
           <div
             onClick={() => navigate('preLaunchTimeline')}
@@ -657,7 +661,7 @@ export default function OwnerDashboard() {
                 </div>
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: '#F5F0E8', fontFamily: 'Georgia, serif' }}>
-                {done}<span style={{ color: '#666', fontSize: 14 }}>/{PRELAUNCH_TOTAL}</span>
+                {done}<span style={{ color: '#666', fontSize: 14 }}>/{visible}</span>
               </div>
             </div>
             <div style={{ height: 5, background: '#222', borderRadius: 3, overflow: 'hidden' }}>

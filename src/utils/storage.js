@@ -2060,6 +2060,13 @@ export function setPreLaunchTaskNotes(taskId, notes) {
   savePreLaunchProgress(map);
 }
 
+export function setPreLaunchTaskHidden(taskId, hidden) {
+  if (!taskId) return;
+  const map = getPreLaunchProgress();
+  map[taskId] = { ...(map[taskId] || {}), hidden: !!hidden };
+  savePreLaunchProgress(map);
+}
+
 // ============================================================
 // LONG-TERM DATA HYGIENE
 // ------------------------------------------------------------
