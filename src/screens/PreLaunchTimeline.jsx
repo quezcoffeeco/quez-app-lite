@@ -162,23 +162,34 @@ export default function PreLaunchTimeline() {
       </div>
 
       <div style={S.body}>
-        {/* Critical Gates — separate top-of-screen view */}
+        {/* Critical Gates — separate top-of-screen view.
+            Hidden tasks are excluded from gate completion: a gate is done
+            when all of its NON-HIDDEN referenced tasks are done. Gates
+            whose every task is hidden drop out of the list entirely. */}
         {(() => {
-          const gateDone = CRITICAL_GATES.filter((g) =>
-            g.taskIds.every((tid) => progress[tid] && progress[tid].done)
-          ).length;
-          const gatePct = CRITICAL_GATES.length > 0 ? Math.round((gateDone / CRITICAL_GATES.length) * 100) : 0;
+          const isHidden = (tid) => !!(progress[tid] && progress[tid].hidden);
+          const visibleGates = CRITICAL_GATES.filter((g) =>
+            g.taskIds.some((tid) => !isHidden(tid))
+          );
+          const gateAllDone = (g) => {
+            const live = g.taskIds.filter((tid) => !isHidden(tid));
+            return live.length > 0 && live.every((tid) => progress[tid] && progress[tid].done);
+          };
+          const gateSomeDone = (g) =>
+            g.taskIds.filter((tid) => !isHidden(tid)).some((tid) => progress[tid] && progress[tid].done);
+          const gateDone = visibleGates.filter(gateAllDone).length;
+          const gatePct = visibleGates.length > 0 ? Math.round((gateDone / visibleGates.length) * 100) : 0;
           return (
         <CollapsibleSection
           id="gates"
           title="⚠ Critical Gates"
           subtitle="If any of these slip, the launch slips."
           progressPct={gatePct}
-          headerRight={<span style={S.sectionCount}>{gateDone}/{CRITICAL_GATES.length}</span>}
+          headerRight={<span style={S.sectionCount}>{gateDone}/{visibleGates.length}</span>}
         >
-          {CRITICAL_GATES.map((g) => {
-            const allDone = g.taskIds.every((tid) => progress[tid] && progress[tid].done);
-            const someDone = g.taskIds.some((tid) => progress[tid] && progress[tid].done);
+          {visibleGates.map((g) => {
+            const allDone = gateAllDone(g);
+            const someDone = gateSomeDone(g);
             return (
               <div key={g.id} style={S.gateRow}>
                 <div style={{ ...S.gateBadge, ...(allDone ? S.gateBadgeDone : someDone ? S.gateBadgePartial : S.gateBadgePending) }}>
