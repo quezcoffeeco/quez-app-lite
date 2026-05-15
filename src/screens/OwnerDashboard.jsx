@@ -45,6 +45,80 @@ import { fmtClock } from '../utils/timeFormat';
 // ── Helpers ───────────────────────────────────────────────────
 const formatTime = (iso) => iso ? fmtClock(iso) : '—';
 
+// Persisted collapse state per panel — survives reloads, role switches,
+// and is included in the JSON backup like every other quez_* key.
+const PANEL_COLLAPSE_KEY = 'quez_owner_panel_collapsed';
+function getPanelCollapseState() {
+  try { return JSON.parse(localStorage.getItem(PANEL_COLLAPSE_KEY) || '{}') || {}; }
+  catch { return {}; }
+}
+function persistPanelCollapsed(id, collapsed) {
+  const state = getPanelCollapseState();
+  state[id] = collapsed;
+  try { localStorage.setItem(PANEL_COLLAPSE_KEY, JSON.stringify(state)); } catch {}
+}
+
+// Drop-in replacement for the panel + panelHeader + panelBody pattern.
+// Header is clickable to toggle; chevron indicates state. Optional
+// headerRight slot for badges / shortcut buttons that shouldn't toggle.
+// Defaults to collapsed so the dashboard surface stays scannable.
+function CollapsiblePanel({ id, icon, title, headerRight, children, defaultCollapsed = true }) {
+  const [collapsed, setCollapsed] = useState(() => {
+    const state = getPanelCollapseState();
+    return id in state ? !!state[id] : defaultCollapsed;
+  });
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    persistPanelCollapsed(id, next);
+  };
+  return (
+    <div style={S.panel}>
+      <div style={{ ...S.panelHeader, borderBottom: collapsed ? 'none' : S.panelHeader.borderBottom }}>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            color: 'inherit',
+            font: 'inherit',
+            textAlign: 'left',
+            minWidth: 0,
+          }}
+        >
+          <span style={S.panelIcon}>{icon}</span>
+          <h2 style={{ ...S.panelTitle, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+          <span
+            aria-hidden="true"
+            style={{
+              color: '#D4AF37',
+              fontSize: 16,
+              transition: 'transform 0.18s ease',
+              transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)',
+              display: 'inline-block',
+              marginLeft: 8,
+            }}
+          >▾</span>
+        </button>
+        {headerRight && (
+          <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 8 }}>
+            {headerRight}
+          </div>
+        )}
+      </div>
+      {!collapsed && <div style={S.panelBody}>{children}</div>}
+    </div>
+  );
+}
+
 function formatDuration(clockIn, clockOut) {
   if (!clockIn || !clockOut) return null;
   const ms = new Date(clockOut) - new Date(clockIn);
@@ -555,71 +629,66 @@ export default function OwnerDashboard() {
 
       {/* ── Hand-off Notes (recent 24h) ── */}
       {handoffs.length > 0 && (
-        <div style={S.panel}>
-          <div style={S.panelHeader}>
-            <span style={S.panelIcon}>📝</span>
-            <h2 style={S.panelTitle}>{isSpanish ? 'Notas de Hand-off' : 'Hand-off Notes'}</h2>
-          </div>
-          <div style={S.panelBody}>
-            {handoffs.map((h) => (
-              <div key={h.id} style={{ padding: '10px 12px', background: '#0D0D0D', border: '1px solid #222', borderRadius: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 10, color: '#D4AF37', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 4 }}>
-                  {h.byName} · {new Date(h.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                </div>
-                <div style={{ fontSize: 13, color: '#F5F0E8', fontStyle: 'italic', lineHeight: 1.45 }}>
-                  "{h.text}"
-                </div>
+        <CollapsiblePanel
+          id="handoffs"
+          icon="📝"
+          title={isSpanish ? 'Notas de Hand-off' : 'Hand-off Notes'}
+          headerRight={
+            <span style={{ background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 10, color: '#D4AF37', fontFamily: 'sans-serif', fontSize: '0.7rem', padding: '2px 9px', fontWeight: 700 }}>
+              {handoffs.length}
+            </span>
+          }
+        >
+          {handoffs.map((h) => (
+            <div key={h.id} style={{ padding: '10px 12px', background: '#0D0D0D', border: '1px solid #222', borderRadius: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: '#D4AF37', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 4 }}>
+                {h.byName} · {new Date(h.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               </div>
-            ))}
-          </div>
-        </div>
+              <div style={{ fontSize: 13, color: '#F5F0E8', fontStyle: 'italic', lineHeight: 1.45 }}>
+                "{h.text}"
+              </div>
+            </div>
+          ))}
+        </CollapsiblePanel>
       )}
 
       {/* ── Panel 1: Daily Checklist Status ── */}
-      <div style={S.panel}>
-        <div style={S.panelHeader}>
-          <span style={S.panelIcon}>☑</span>
-          <h2 style={S.panelTitle}>
-            {isSpanish ? 'Checklist Diario de Hoy' : "Today's Daily Checklist"}
-          </h2>
-        </div>
-        <div style={S.panelBody}>
-
-          {[
-            { key: 'opening', label: isSpanish ? 'Apertura' : 'Opening' },
-            { key: 'midService', label: isSpanish ? 'Servicio Intermedio' : 'Mid-Service' },
-            { key: 'closing', label: isSpanish ? 'Cierre' : 'Closing' },
-          ].map((section, i, arr) => {
-            const done = dailyStatus[section.key];
-            const isLast = i === arr.length - 1;
-            return (
-              <div key={section.key} style={isLast ? S.statusRowLast : S.statusRow}>
-                <span style={{ fontSize: '1rem', minWidth: 22, textAlign: 'center' }}>
-                  {done ? '✅' : '⬜'}
-                </span>
-                <span style={S.statusLabel}>{section.label}</span>
-                <span style={done ? S.statusValueDone : S.statusValuePending}>
-                  {done
-                    ? (isSpanish ? 'Completado' : 'Submitted')
-                    : (isSpanish ? 'Pendiente' : 'Pending')}
-                </span>
-              </div>
-            );
-          })}
-
-        </div>
-      </div>
+      <CollapsiblePanel
+        id="dailyChecklist"
+        icon="☑"
+        title={isSpanish ? 'Checklist Diario de Hoy' : "Today's Daily Checklist"}
+      >
+        {[
+          { key: 'opening', label: isSpanish ? 'Apertura' : 'Opening' },
+          { key: 'midService', label: isSpanish ? 'Servicio Intermedio' : 'Mid-Service' },
+          { key: 'closing', label: isSpanish ? 'Cierre' : 'Closing' },
+        ].map((section, i, arr) => {
+          const done = dailyStatus[section.key];
+          const isLast = i === arr.length - 1;
+          return (
+            <div key={section.key} style={isLast ? S.statusRowLast : S.statusRow}>
+              <span style={{ fontSize: '1rem', minWidth: 22, textAlign: 'center' }}>
+                {done ? '✅' : '⬜'}
+              </span>
+              <span style={S.statusLabel}>{section.label}</span>
+              <span style={done ? S.statusValueDone : S.statusValuePending}>
+                {done
+                  ? (isSpanish ? 'Completado' : 'Submitted')
+                  : (isSpanish ? 'Pendiente' : 'Pending')}
+              </span>
+            </div>
+          );
+        })}
+      </CollapsiblePanel>
 
       {/* ── Panel 2: Periodic Checklist Status ── */}
-      <div style={S.panel}>
-        <div style={S.panelHeader}>
-          <span style={S.panelIcon}>📅</span>
-          <h2 style={S.panelTitle}>
-            {isSpanish ? 'Checklists Periódicos' : 'Periodic Checklists'}
-          </h2>
+      <CollapsiblePanel
+        id="periodicChecklists"
+        icon="📅"
+        title={isSpanish ? 'Checklists Periódicos' : 'Periodic Checklists'}
+        headerRight={
           <button
             style={{
-              marginLeft: 'auto',
               background: 'rgba(212,175,55,0.12)',
               border: '1px solid rgba(212,175,55,0.3)',
               borderRadius: 6,
@@ -634,44 +703,41 @@ export default function OwnerDashboard() {
           >
             {isSpanish ? 'Abrir →' : 'Open →'}
           </button>
-        </div>
-        <div style={S.panelBody}>
-          {periodicRows.map((row, i) => {
-            const isLast = i === periodicRows.length - 1;
-            return (
-              <div key={row.label} style={isLast ? S.statusRowLast : S.statusRow}>
-                <span style={{ fontSize: '1rem', minWidth: 22, textAlign: 'center', opacity: row.due ? 1 : 0.35 }}>
-                  {!row.due ? '–' : row.submitted ? '✅' : '⚠️'}
-                </span>
-                <span style={{ ...S.statusLabel, opacity: row.due ? 1 : 0.4 }}>
-                  {row.label}
-                </span>
-                <span style={
-                  !row.due ? S.statusValue :
-                  row.submitted ? S.statusValueDone :
-                  S.statusValuePending
-                }>
-                  {!row.due
-                    ? row.notDueLabel
-                    : row.submitted
-                    ? (isSpanish ? 'Enviado' : 'Submitted')
-                    : (isSpanish ? 'PENDIENTE' : 'DUE — Not submitted')}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+        }
+      >
+        {periodicRows.map((row, i) => {
+          const isLast = i === periodicRows.length - 1;
+          return (
+            <div key={row.label} style={isLast ? S.statusRowLast : S.statusRow}>
+              <span style={{ fontSize: '1rem', minWidth: 22, textAlign: 'center', opacity: row.due ? 1 : 0.35 }}>
+                {!row.due ? '–' : row.submitted ? '✅' : '⚠️'}
+              </span>
+              <span style={{ ...S.statusLabel, opacity: row.due ? 1 : 0.4 }}>
+                {row.label}
+              </span>
+              <span style={
+                !row.due ? S.statusValue :
+                row.submitted ? S.statusValueDone :
+                S.statusValuePending
+              }>
+                {!row.due
+                  ? row.notDueLabel
+                  : row.submitted
+                  ? (isSpanish ? 'Enviado' : 'Submitted')
+                  : (isSpanish ? 'PENDIENTE' : 'DUE — Not submitted')}
+              </span>
+            </div>
+          );
+        })}
+      </CollapsiblePanel>
 
       {/* ── Panel 3: Clock-In Log ── */}
-      <div style={S.panel}>
-        <div style={S.panelHeader}>
-          <span style={S.panelIcon}>⏱</span>
-          <h2 style={S.panelTitle}>
-            {isSpanish ? 'Registro de Entradas de Hoy' : "Today's Clock-In Log"}
-          </h2>
+      <CollapsiblePanel
+        id="clockInLog"
+        icon="⏱"
+        title={isSpanish ? 'Registro de Entradas de Hoy' : "Today's Clock-In Log"}
+        headerRight={
           <span style={{
-            marginLeft: 'auto',
             background: 'rgba(212,175,55,0.12)',
             border: '1px solid rgba(212,175,55,0.25)',
             borderRadius: 10,
@@ -683,181 +749,177 @@ export default function OwnerDashboard() {
           }}>
             {clockRecords.length}
           </span>
-        </div>
-        <div style={S.panelBody}>
-          {clockRecords.length === 0 ? (
-            <p style={S.empty}>
-              {isSpanish ? 'Nadie ha registrado entrada hoy.' : 'No one has clocked in today.'}
-            </p>
-          ) : (
-            clockRecords.map((punch, i) => {
-              const isLast = i === clockRecords.length - 1;
-              const duration = formatDuration(punch.clockInTime, punch.clockOutTime);
-              return (
-                <div key={punch.id || i} style={isLast ? { padding: '10px 0' } : S.clockRow}>
-                  <div style={S.clockName}>{punch.name}</div>
-                  <div style={S.clockMeta}>
-                    {getRoleLabel(punch.role)} · {punch.location}
-                    {punch.autoClosedFlag && (
-                      <span style={{ color: '#e09050', marginLeft: 6 }}>
-                        ⚠ {isSpanish ? 'Cierre automático' : 'Auto-closed'}
-                      </span>
-                    )}
-                  </div>
-                  <div style={S.clockTime}>
-                    {isSpanish ? 'Entrada' : 'In'}: {formatTime(punch.clockInTime)}
-                    {punch.clockOutTime
-                      ? ` · ${isSpanish ? 'Salida' : 'Out'}: ${formatTime(punch.clockOutTime)}${duration ? ` · ${duration}` : ''}`
-                      : ` · ${isSpanish ? 'Turno abierto' : 'Shift open'}`}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* ── Panel 4: Flagged Items ── */}
-      <div style={S.panel}>
-        <div style={S.panelHeader}>
-          <span style={S.panelIcon}>🚨</span>
-          <h2 style={S.panelTitle}>
-            {isSpanish ? 'Elementos Marcados Hoy' : "Today's Flagged Items"}
-          </h2>
-          {flaggedItems.length > 0 && (
-            <span style={{
-              marginLeft: 'auto',
-              background: 'rgba(224,82,82,0.15)',
-              border: '1px solid rgba(224,82,82,0.4)',
-              borderRadius: 10,
-              color: '#e05252',
-              fontFamily: 'sans-serif',
-              fontSize: '0.7rem',
-              padding: '2px 9px',
-              fontWeight: 700,
-            }}>
-              {flaggedItems.length}
-            </span>
-          )}
-        </div>
-        <div style={S.panelBody}>
-          {flaggedItems.length === 0 ? (
-            <p style={S.empty}>
-              {isSpanish ? 'Sin elementos marcados hoy. ✓' : 'No flagged items today. ✓'}
-            </p>
-          ) : (
-            flaggedItems.map((flag, i) => {
-              const isLast = i === flaggedItems.length - 1;
-              return (
-                <div key={flag.id || i} style={isLast ? { padding: '10px 0' } : S.flagRow}>
-                  <div style={S.flagItem}>{flag.item || flag.label || 'Flagged item'}</div>
-                  <div style={S.flagMeta}>
-                    {flag.section && `${flag.section} · `}
-                    {flag.operator && `${flag.operator} · `}
-                    {formatTime(flag.timestamp || flag.flaggedAt)}
-                  </div>
-                  {flag.correctiveAction && (
-                    <div style={S.flagAction}>
-                      {isSpanish ? 'Acción correctiva' : 'Corrective action'}: {flag.correctiveAction}
-                    </div>
+        }
+      >
+        {clockRecords.length === 0 ? (
+          <p style={S.empty}>
+            {isSpanish ? 'Nadie ha registrado entrada hoy.' : 'No one has clocked in today.'}
+          </p>
+        ) : (
+          clockRecords.map((punch, i) => {
+            const isLast = i === clockRecords.length - 1;
+            const duration = formatDuration(punch.clockInTime, punch.clockOutTime);
+            return (
+              <div key={punch.id || i} style={isLast ? { padding: '10px 0' } : S.clockRow}>
+                <div style={S.clockName}>{punch.name}</div>
+                <div style={S.clockMeta}>
+                  {getRoleLabel(punch.role)} · {punch.location}
+                  {punch.autoClosedFlag && (
+                    <span style={{ color: '#e09050', marginLeft: 6 }}>
+                      ⚠ {isSpanish ? 'Cierre automático' : 'Auto-closed'}
+                    </span>
                   )}
                 </div>
-              );
-            })
-          )}
-        </div>
-      </div>
+                <div style={S.clockTime}>
+                  {isSpanish ? 'Entrada' : 'In'}: {formatTime(punch.clockInTime)}
+                  {punch.clockOutTime
+                    ? ` · ${isSpanish ? 'Salida' : 'Out'}: ${formatTime(punch.clockOutTime)}${duration ? ` · ${duration}` : ''}`
+                    : ` · ${isSpanish ? 'Turno abierto' : 'Shift open'}`}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </CollapsiblePanel>
+
+      {/* ── Panel 4: Flagged Items ── */}
+      <CollapsiblePanel
+        id="flaggedItems"
+        icon="🚨"
+        title={isSpanish ? 'Elementos Marcados Hoy' : "Today's Flagged Items"}
+        headerRight={flaggedItems.length > 0 ? (
+          <span style={{
+            background: 'rgba(224,82,82,0.15)',
+            border: '1px solid rgba(224,82,82,0.4)',
+            borderRadius: 10,
+            color: '#e05252',
+            fontFamily: 'sans-serif',
+            fontSize: '0.7rem',
+            padding: '2px 9px',
+            fontWeight: 700,
+          }}>
+            {flaggedItems.length}
+          </span>
+        ) : null}
+      >
+        {flaggedItems.length === 0 ? (
+          <p style={S.empty}>
+            {isSpanish ? 'Sin elementos marcados hoy. ✓' : 'No flagged items today. ✓'}
+          </p>
+        ) : (
+          flaggedItems.map((flag, i) => {
+            const isLast = i === flaggedItems.length - 1;
+            return (
+              <div key={flag.id || i} style={isLast ? { padding: '10px 0' } : S.flagRow}>
+                <div style={S.flagItem}>{flag.item || flag.label || 'Flagged item'}</div>
+                <div style={S.flagMeta}>
+                  {flag.section && `${flag.section} · `}
+                  {flag.operator && `${flag.operator} · `}
+                  {formatTime(flag.timestamp || flag.flaggedAt)}
+                </div>
+                {flag.correctiveAction && (
+                  <div style={S.flagAction}>
+                    {isSpanish ? 'Acción correctiva' : 'Corrective action'}: {flag.correctiveAction}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </CollapsiblePanel>
 
       {/* ── Panel 5: Time Clock Report ── */}
-      <div style={S.panel}>
-        <div style={S.panelHeader}>
-          <span style={S.panelIcon}>📊</span>
-          <h2 style={S.panelTitle}>
-            {isSpanish ? 'Reporte de Tiempo' : 'Time Clock Report'}
-          </h2>
-        </div>
-        <div style={S.panelBody}>
-          <p style={S.reportSub}>
-            {reportCount > 0
-              ? (isSpanish
-                  ? `${reportCount} registro${reportCount !== 1 ? 's' : ''} sin enviar listo${reportCount !== 1 ? 's' : ''}. El reporte se enviará al correo del propietario.`
-                  : `${reportCount} unsent punch record${reportCount !== 1 ? 's' : ''} ready. Report will be sent to the owner email.`)
-              : (isSpanish
-                  ? 'No hay registros de tiempo sin enviar en este momento.'
-                  : 'No unsent time clock records at this time.')}
-          </p>
+      <CollapsiblePanel
+        id="timeClockReport"
+        icon="📊"
+        title={isSpanish ? 'Reporte de Tiempo' : 'Time Clock Report'}
+        headerRight={reportCount > 0 ? (
+          <span style={{ background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 10, color: '#D4AF37', fontFamily: 'sans-serif', fontSize: '0.7rem', padding: '2px 9px', fontWeight: 700 }}>
+            {reportCount}
+          </span>
+        ) : null}
+      >
+        <p style={S.reportSub}>
+          {reportCount > 0
+            ? (isSpanish
+                ? `${reportCount} registro${reportCount !== 1 ? 's' : ''} sin enviar listo${reportCount !== 1 ? 's' : ''}. El reporte se enviará al correo del propietario.`
+                : `${reportCount} unsent punch record${reportCount !== 1 ? 's' : ''} ready. Report will be sent to the owner email.`)
+            : (isSpanish
+                ? 'No hay registros de tiempo sin enviar en este momento.'
+                : 'No unsent time clock records at this time.')}
+        </p>
 
-          {reportSent ? (
-            <div style={S.reportSent}>
-              ✅ {isSpanish ? 'Reporte enviado correctamente.' : 'Report sent successfully.'}
-            </div>
-          ) : sendingReport ? (
-            <div style={S.reportSending}>
-              {isSpanish ? 'Enviando reporte...' : 'Sending report...'}
-            </div>
-          ) : (
-            <button
-              style={reportCount > 0 ? S.reportBtn : S.reportBtnDisabled}
-              disabled={reportCount === 0}
-              onClick={handleSendTimeClockReport}
-            >
-              {isSpanish ? 'Enviar Reporte de Tiempo' : 'Send Time Clock Report'}
-            </button>
-          )}
-        </div>
-      </div>
+        {reportSent ? (
+          <div style={S.reportSent}>
+            ✅ {isSpanish ? 'Reporte enviado correctamente.' : 'Report sent successfully.'}
+          </div>
+        ) : sendingReport ? (
+          <div style={S.reportSending}>
+            {isSpanish ? 'Enviando reporte...' : 'Sending report...'}
+          </div>
+        ) : (
+          <button
+            style={reportCount > 0 ? S.reportBtn : S.reportBtnDisabled}
+            disabled={reportCount === 0}
+            onClick={handleSendTimeClockReport}
+          >
+            {isSpanish ? 'Enviar Reporte de Tiempo' : 'Send Time Clock Report'}
+          </button>
+        )}
+      </CollapsiblePanel>
 
       {/* ── Panel 6: Daily Drink Report ── */}
-      <div style={S.panel}>
-        <div style={S.panelHeader}>
-          <span style={S.panelIcon}>☕</span>
-          <h2 style={S.panelTitle}>
-            {isSpanish ? 'Reporte Diario de Bebidas' : 'Daily Drink Report'}
-          </h2>
-        </div>
-        <div style={S.panelBody}>
-          <p style={S.reportSub}>
-            {drinkTotal > 0
-              ? (isSpanish
-                  ? `${drinkTotal} bebida${drinkTotal !== 1 ? 's' : ''} servida${drinkTotal !== 1 ? 's' : ''} hoy en ${Object.keys(drinkTally).length} variedad${Object.keys(drinkTally).length !== 1 ? 'es' : ''}.`
-                  : `${drinkTotal} drink${drinkTotal !== 1 ? 's' : ''} served today across ${Object.keys(drinkTally).length} variet${Object.keys(drinkTally).length !== 1 ? 'ies' : 'y'}.`)
-              : (isSpanish
-                  ? 'Aún no se han servido bebidas hoy.'
-                  : 'No drinks have been served yet today.')}
-          </p>
+      <CollapsiblePanel
+        id="drinkReport"
+        icon="☕"
+        title={isSpanish ? 'Reporte Diario de Bebidas' : 'Daily Drink Report'}
+        headerRight={drinkTotal > 0 ? (
+          <span style={{ background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 10, color: '#D4AF37', fontFamily: 'sans-serif', fontSize: '0.7rem', padding: '2px 9px', fontWeight: 700 }}>
+            {drinkTotal}
+          </span>
+        ) : null}
+      >
+        <p style={S.reportSub}>
+          {drinkTotal > 0
+            ? (isSpanish
+                ? `${drinkTotal} bebida${drinkTotal !== 1 ? 's' : ''} servida${drinkTotal !== 1 ? 's' : ''} hoy en ${Object.keys(drinkTally).length} variedad${Object.keys(drinkTally).length !== 1 ? 'es' : ''}.`
+                : `${drinkTotal} drink${drinkTotal !== 1 ? 's' : ''} served today across ${Object.keys(drinkTally).length} variet${Object.keys(drinkTally).length !== 1 ? 'ies' : 'y'}.`)
+            : (isSpanish
+                ? 'Aún no se han servido bebidas hoy.'
+                : 'No drinks have been served yet today.')}
+        </p>
 
-          {drinkTotal > 0 && (
-            <div style={{ background: '#0D0D0D', border: '1px solid #222', borderRadius: 8, padding: '10px 12px', margin: '8px 0 12px', maxHeight: 200, overflowY: 'auto' }}>
-              {Object.keys(drinkTally)
-                .sort((a, b) => drinkTally[b].total - drinkTally[a].total)
-                .map((name) => (
-                  <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-                    <span style={{ color: '#ddd' }}>{name}</span>
-                    <span style={{ color: '#D4AF37', fontWeight: 700 }}>{drinkTally[name].total}</span>
-                  </div>
-                ))}
-            </div>
-          )}
+        {drinkTotal > 0 && (
+          <div style={{ background: '#0D0D0D', border: '1px solid #222', borderRadius: 8, padding: '10px 12px', margin: '8px 0 12px', maxHeight: 200, overflowY: 'auto' }}>
+            {Object.keys(drinkTally)
+              .sort((a, b) => drinkTally[b].total - drinkTally[a].total)
+              .map((name) => (
+                <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+                  <span style={{ color: '#ddd' }}>{name}</span>
+                  <span style={{ color: '#D4AF37', fontWeight: 700 }}>{drinkTally[name].total}</span>
+                </div>
+              ))}
+          </div>
+        )}
 
-          {drinkReportSent ? (
-            <div style={S.reportSent}>
-              ✅ {isSpanish ? 'Reporte enviado correctamente.' : 'Report sent successfully.'}
-            </div>
-          ) : sendingDrinkReport ? (
-            <div style={S.reportSending}>
-              {isSpanish ? 'Enviando reporte...' : 'Sending report...'}
-            </div>
-          ) : (
-            <button
-              style={drinkTotal > 0 ? S.reportBtn : S.reportBtnDisabled}
-              disabled={drinkTotal === 0}
-              onClick={handleSendDrinkReport}
-            >
-              {isSpanish ? 'Enviar Reporte de Bebidas' : 'Send Drink Report'}
-            </button>
-          )}
-        </div>
-      </div>
+        {drinkReportSent ? (
+          <div style={S.reportSent}>
+            ✅ {isSpanish ? 'Reporte enviado correctamente.' : 'Report sent successfully.'}
+          </div>
+        ) : sendingDrinkReport ? (
+          <div style={S.reportSending}>
+            {isSpanish ? 'Enviando reporte...' : 'Sending report...'}
+          </div>
+        ) : (
+          <button
+            style={drinkTotal > 0 ? S.reportBtn : S.reportBtnDisabled}
+            disabled={drinkTotal === 0}
+            onClick={handleSendDrinkReport}
+          >
+            {isSpanish ? 'Enviar Reporte de Bebidas' : 'Send Drink Report'}
+          </button>
+        )}
+      </CollapsiblePanel>
 
       {/* ── Footer spacing ── */}
       <div style={{ height: 16 }} />
