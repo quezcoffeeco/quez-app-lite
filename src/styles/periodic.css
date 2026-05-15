@@ -1,0 +1,509 @@
+/* ============================================================
+   QUEZ APP LITE — Periodic Checklist Styles
+   src/styles/periodic.css
+   Session 6
+   ============================================================ */
+
+/* ── Screen wrapper ─────────────────────────────────────────── */
+.periodic-screen {
+  min-height: 100vh;
+  background: var(--color-black);
+  color: var(--color-cream);
+  padding-bottom: 100px;
+  font-family: 'Georgia', serif;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.periodic-header {
+  background: var(--color-dark-gray);
+  border-bottom: 2px solid var(--color-gold);
+  padding: 20px 16px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.periodic-header__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.periodic-header__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-gold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.periodic-header__subtitle {
+  font-size: 0.72rem;
+  color: var(--color-cream);
+  opacity: 0.55;
+  font-family: sans-serif;
+  margin: 2px 0 0;
+  letter-spacing: 0.04em;
+}
+
+.periodic-header__meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.periodic-header__badge {
+  font-size: 0.7rem;
+  font-family: sans-serif;
+  background: var(--color-mid-gray);
+  color: var(--color-cream);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 4px;
+  padding: 3px 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ── Progress bar ───────────────────────────────────────────── */
+.periodic-progress {
+  margin: 0 16px;
+}
+
+.periodic-progress__bar-bg {
+  height: 4px;
+  background: var(--color-mid-gray);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.periodic-progress__bar-fill {
+  height: 100%;
+  background: var(--color-gold);
+  border-radius: 2px;
+  transition: width 0.35s ease;
+}
+
+.periodic-progress__label {
+  font-family: sans-serif;
+  font-size: 0.7rem;
+  color: var(--color-cream);
+  opacity: 0.6;
+  margin-top: 4px;
+  text-align: right;
+}
+
+/* ── Tab row ────────────────────────────────────────────────── */
+.periodic-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--color-mid-gray);
+  border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.periodic-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.periodic-tab {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  font-family: sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(245, 240, 232, 0.5);
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.periodic-tab:active {
+  opacity: 0.7;
+}
+
+.periodic-tab--active {
+  color: var(--color-gold);
+  border-bottom-color: var(--color-gold);
+  background: rgba(212, 175, 55, 0.06);
+}
+
+.periodic-tab--submitted {
+  color: #4caf82;
+}
+
+.periodic-tab--locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Not due banner ─────────────────────────────────────────── */
+.periodic-not-due {
+  margin: 32px 16px;
+  padding: 24px 20px;
+  background: var(--color-dark-gray);
+  border: 1px solid rgba(212, 175, 55, 0.15);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.periodic-not-due__icon {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.periodic-not-due__title {
+  font-size: 1rem;
+  color: var(--color-gold);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.periodic-not-due__body {
+  font-family: sans-serif;
+  font-size: 0.8rem;
+  color: var(--color-cream);
+  opacity: 0.6;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Already submitted banner ───────────────────────────────── */
+.periodic-submitted-banner {
+  margin: 24px 16px 0;
+  padding: 16px 20px;
+  background: rgba(76, 175, 130, 0.12);
+  border: 1px solid rgba(76, 175, 130, 0.4);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.periodic-submitted-banner__icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.periodic-submitted-banner__text {
+  font-family: sans-serif;
+  font-size: 0.8rem;
+  color: #4caf82;
+  line-height: 1.4;
+}
+
+/* ── Section headers ────────────────────────────────────────── */
+.periodic-section {
+  margin: 20px 16px 0;
+}
+
+.periodic-section__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.periodic-section__title {
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+  font-weight: 700;
+  font-family: sans-serif;
+  margin: 0;
+}
+
+.periodic-section__line {
+  flex: 1;
+  height: 1px;
+  background: rgba(212, 175, 55, 0.2);
+}
+
+/* ── Checklist items ────────────────────────────────────────── */
+.periodic-item {
+  background: var(--color-dark-gray);
+  border: 1px solid rgba(212, 175, 55, 0.1);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.periodic-item--checked {
+  border-color: rgba(76, 175, 130, 0.35);
+  background: rgba(76, 175, 130, 0.04);
+}
+
+.periodic-item__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 14px 10px;
+}
+
+/* Custom checkbox */
+.periodic-item__checkbox {
+  display: none;
+}
+
+.periodic-item__check-box {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 6px;
+  border: 2px solid rgba(212, 175, 55, 0.4);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s;
+  margin-top: 1px;
+}
+
+.periodic-item__check-box--checked {
+  background: #4caf82;
+  border-color: #4caf82;
+}
+
+.periodic-item__check-icon {
+  display: none;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.periodic-item__check-box--checked .periodic-item__check-icon {
+  display: block;
+}
+
+.periodic-item__content {
+  flex: 1;
+}
+
+.periodic-item__label {
+  font-size: 0.88rem;
+  color: var(--color-cream);
+  line-height: 1.45;
+  font-family: sans-serif;
+  margin: 0 0 4px;
+}
+
+.periodic-item__label--checked {
+  opacity: 0.6;
+  text-decoration: line-through;
+  text-decoration-color: rgba(76, 175, 130, 0.5);
+}
+
+.periodic-item__hint {
+  font-size: 0.73rem;
+  color: var(--color-gold);
+  opacity: 0.7;
+  font-style: italic;
+  font-family: sans-serif;
+  margin: 0;
+}
+
+/* Notes field */
+.periodic-item__notes-toggle {
+  font-size: 0.7rem;
+  font-family: sans-serif;
+  color: rgba(212, 175, 55, 0.6);
+  letter-spacing: 0.04em;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 14px 10px;
+  display: block;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.periodic-item__notes-area {
+  padding: 0 14px 12px;
+}
+
+.periodic-item__notes-input {
+  width: 100%;
+  background: var(--color-mid-gray);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  border-radius: 6px;
+  color: var(--color-cream);
+  font-family: sans-serif;
+  font-size: 0.82rem;
+  padding: 10px 12px;
+  resize: none;
+  box-sizing: border-box;
+  line-height: 1.45;
+  transition: border-color 0.2s;
+}
+
+.periodic-item__notes-input:focus {
+  outline: none;
+  border-color: rgba(212, 175, 55, 0.55);
+}
+
+.periodic-item__notes-input::placeholder {
+  opacity: 0.4;
+}
+
+/* ── Submit section ─────────────────────────────────────────── */
+.periodic-submit {
+  margin: 28px 16px 20px;
+}
+
+.periodic-submit__blocker {
+  font-family: sans-serif;
+  font-size: 0.78rem;
+  color: rgba(245, 240, 232, 0.5);
+  text-align: center;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+.periodic-submit__btn {
+  width: 100%;
+  padding: 16px;
+  background: var(--color-gold);
+  color: var(--color-black);
+  border: none;
+  border-radius: 10px;
+  font-family: 'Georgia', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.periodic-submit__btn:active {
+  transform: scale(0.98);
+  opacity: 0.9;
+}
+
+.periodic-submit__btn:disabled {
+  background: rgba(212, 175, 55, 0.25);
+  color: rgba(245, 240, 232, 0.35);
+  cursor: not-allowed;
+}
+
+/* ── Sending overlay ─────────────────────────────────────────── */
+.periodic-sending {
+  text-align: center;
+  padding: 20px;
+  font-family: sans-serif;
+  font-size: 0.85rem;
+  color: var(--color-gold);
+  letter-spacing: 0.06em;
+}
+
+/* ── Confirm modal ───────────────────────────────────────────── */
+.periodic-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.periodic-modal {
+  background: var(--color-dark-gray);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 16px 16px 0 0;
+  padding: 28px 20px 32px;
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+}
+
+.periodic-modal__icon {
+  font-size: 2.2rem;
+  margin-bottom: 12px;
+}
+
+.periodic-modal__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-gold);
+  margin: 0 0 8px;
+}
+
+.periodic-modal__body {
+  font-family: sans-serif;
+  font-size: 0.83rem;
+  color: var(--color-cream);
+  opacity: 0.75;
+  line-height: 1.5;
+  margin: 0 0 24px;
+}
+
+.periodic-modal__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.periodic-modal__cancel {
+  flex: 1;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 8px;
+  color: var(--color-cream);
+  font-family: sans-serif;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.periodic-modal__confirm {
+  flex: 2;
+  padding: 14px;
+  background: var(--color-gold);
+  border: none;
+  border-radius: 8px;
+  color: var(--color-black);
+  font-family: 'Georgia', serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ── Role gate ──────────────────────────────────────────────── */
+.periodic-role-gate {
+  margin: 48px 20px;
+  text-align: center;
+}
+
+.periodic-role-gate__icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+}
+
+.periodic-role-gate__title {
+  font-size: 1rem;
+  color: var(--color-gold);
+  margin: 0 0 8px;
+}
+
+.periodic-role-gate__body {
+  font-family: sans-serif;
+  font-size: 0.8rem;
+  color: var(--color-cream);
+  opacity: 0.55;
+  line-height: 1.5;
+}

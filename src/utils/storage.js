@@ -1,21 +1,21 @@
 // ============================================================
 // QUEZ APP LITE — Storage Utility (Complete / Unified)
-// All function names from all sessions preserved.
+// Sessions 1–6. All function names preserved.
 // DO NOT replace without merging all exports.
 // ============================================================
  
-const SETTINGS_KEY      = 'quez_settings';
-const SESSION_KEY       = 'quez_session';
-const EMPLOYEES_KEY     = 'quez_employees';
-const MENU_KEY          = 'quez_menu_items';
-const LOCKOUT_KEY       = 'quez_pin_lockout';
-const PUNCHES_KEY       = 'quez_time_punches';
-const DAILY_REC_KEY     = 'quez_daily_checklist_records';
-const DAILY_SUB_KEY     = 'quez_daily_submitted';
+const SETTINGS_KEY        = 'quez_settings';
+const SESSION_KEY         = 'quez_session';
+const EMPLOYEES_KEY       = 'quez_employees';
+const MENU_KEY            = 'quez_menu_items';
+const LOCKOUT_KEY         = 'quez_pin_lockout';
+const PUNCHES_KEY         = 'quez_time_punches';
+const DAILY_REC_KEY       = 'quez_daily_checklist_records';
+const DAILY_SUB_KEY       = 'quez_daily_submitted';
 const CHECKLIST_STATE_KEY = 'quez_checklist_state';
-const DRINK_CNT_KEY     = 'quez_drink_count_records';
-const FLAGGED_KEY       = 'quez_flagged_items';
-const APP_ACCESS_KEY    = 'quez_app_access';
+const DRINK_CNT_KEY       = 'quez_drink_count_records';
+const FLAGGED_KEY         = 'quez_flagged_items';
+const APP_ACCESS_KEY      = 'quez_app_access';
 const INCOMPLETE_SENT_KEY = 'quez_incomplete_alert_sent';
  
 // ── Default settings ──────────────────────────────────────
@@ -124,12 +124,9 @@ export const clearPinLockout = (employeeId) => {
 };
  
 // ── Time Punches ──────────────────────────────────────────
-// Each punch: { employeeId, name, role, location, clockInTime, clockOutTime, date, autoClose, sent }
- 
 export const getPunches = () => storageGet(PUNCHES_KEY) || [];
 export const savePunches = (punches) => storageSet(PUNCHES_KEY, punches);
  
-/** Record a clock-in punch */
 export const recordClockIn = ({ employeeId, name, role, location, clockInTime }) => {
   const punches = getPunches();
   punches.push({
@@ -146,10 +143,8 @@ export const recordClockIn = ({ employeeId, name, role, location, clockInTime })
   savePunches(punches);
 };
  
-/** Record a clock-out on the most recent open punch for this employee */
 export const recordClockOut = ({ employeeId, name, role, location, clockInTime, clockOutTime }) => {
   const punches = getPunches();
-  // Find last open punch for this employee
   let found = false;
   for (let i = punches.length - 1; i >= 0; i--) {
     if (punches[i].employeeId === employeeId && !punches[i].clockOutTime) {
@@ -158,13 +153,9 @@ export const recordClockOut = ({ employeeId, name, role, location, clockInTime, 
       break;
     }
   }
-  // If no open punch found, create a complete one
   if (!found) {
     punches.push({
-      employeeId,
-      name,
-      role,
-      location,
+      employeeId, name, role, location,
       clockInTime: clockInTime || new Date().toISOString(),
       clockOutTime: clockOutTime || new Date().toISOString(),
       date: new Date().toLocaleDateString('en-US'),
@@ -175,7 +166,6 @@ export const recordClockOut = ({ employeeId, name, role, location, clockInTime, 
   savePunches(punches);
 };
  
-/** Legacy alias used by LoginScreen */
 export const addClockInRecord = ({ employeeId, name, role, location, clockInTime }) =>
   recordClockIn({ employeeId, name, role, location, clockInTime });
  
@@ -193,75 +183,52 @@ export const loadTodayClockRecords = () => {
   return getPunches().filter(p => p.date === today);
 };
  
-/** Check if employee has an open (clocked-in, not clocked-out) punch today */
 export const hasOpenPunchToday = (employeeId) => {
   const today = new Date().toLocaleDateString('en-US');
-  const punches = getPunches();
-  return punches.some(
+  return getPunches().some(
     p => p.employeeId === employeeId && p.date === today && !p.clockOutTime
   );
 };
  
-/** Check if employee has any punch today (open or closed) */
 export const hasPunchToday = (employeeId) => {
   const today = new Date().toLocaleDateString('en-US');
   return getPunches().some(p => p.employeeId === employeeId && p.date === today);
 };
  
-/** Get all unsent punches for time clock report */
 export const getUnsentPunches = () => getPunches().filter(p => !p.sent);
  
-/** Mark punches as sent */
-export const markPunchesSent = (beforeDate) => {
+export const markPunchesSent = () => {
   const punches = getPunches();
   const updated = punches.map(p => {
-    if (!p.sent && p.clockOutTime) {
-      return { ...p, sent: true };
-    }
+    if (!p.sent && p.clockOutTime) return { ...p, sent: true };
     return p;
   });
   savePunches(updated);
 };
  
-/**
- * Auto-close orphaned punches from yesterday or earlier.
- * Called on every app open.
- * Sets clockOutTime to 23:59 of that day, flags autoClose = true.
- */
 export const autoCloseOrphanedPunches = () => {
   const today = new Date().toLocaleDateString('en-US');
   const punches = getPunches();
   let changed = false;
- 
   const updated = punches.map(p => {
     if (!p.clockOutTime && p.date !== today) {
-      // Build 11:59 PM timestamp for that date
       const closeTime = new Date(p.date);
       closeTime.setHours(23, 59, 0, 0);
       changed = true;
-      return {
-        ...p,
-        clockOutTime: closeTime.toISOString(),
-        autoClose: true,
-      };
+      return { ...p, clockOutTime: closeTime.toISOString(), autoClose: true };
     }
     return p;
   });
- 
   if (changed) savePunches(updated);
 };
  
-// ── Global Checklist State (persisted across user sessions) ──
-// Saved against today's date so it resets each day automatically.
- 
+// ── Checklist State ───────────────────────────────────────
 const checklistStateKey = () => {
   const d = new Date();
   return `${CHECKLIST_STATE_KEY}_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
 };
  
-export const saveChecklistState = (state) => {
-  storageSet(checklistStateKey(), state);
-};
+export const saveChecklistState = (state) => storageSet(checklistStateKey(), state);
  
 export const loadChecklistState = () => {
   return storageGet(checklistStateKey()) || {
@@ -297,8 +264,6 @@ export const saveDailyChecklistRecord = (record) => {
 export const loadDailyChecklistRecords = () => storageGet(DAILY_REC_KEY) || [];
  
 // ── App access tracking ───────────────────────────────────
-// Records each day the app was opened — used by incomplete checklist check.
- 
 export const recordAppAccess = () => {
   const today = new Date().toLocaleDateString('en-US');
   const access = storageGet(APP_ACCESS_KEY) || {};
@@ -311,49 +276,26 @@ export const wasAppAccessedOn = (dateStr) => {
   return access[dateStr] === true;
 };
  
-// ── Incomplete checklist check ────────────────────────────
-// Called on app open. Checks if yesterday's checklist was incomplete.
-// If the app was accessed yesterday but any section wasn't submitted,
-// sends an alert. Only fires once per day.
- 
+// ── Incomplete checklist alert ────────────────────────────
 export const checkAndSendIncompleteAlert = () => {
-  // Record today's access
   recordAppAccess();
- 
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
   const yesterdayStr = yesterday.toLocaleDateString('en-US');
- 
-  // Only check if app was accessed yesterday
   if (!wasAppAccessedOn(yesterdayStr)) return;
- 
-  // Check if alert already sent today
   const alertSentKey = `${INCOMPLETE_SENT_KEY}_${today.getFullYear()}_${today.getMonth() + 1}_${today.getDate()}`;
   if (storageGet(alertSentKey)) return;
- 
-  // Check yesterday's submission status
-  const yKey = `${DAILY_SUB_KEY}_${yesterday.getFullYear()}_${yesterday.getMonth() + 1}_${yesterday.getDate()}`;
-  const yState = storageGet(yKey);
- 
-  // Get yesterday's checklist state to see which sections were done
   const yChecklistKey = `${CHECKLIST_STATE_KEY}_${yesterday.getFullYear()}_${yesterday.getMonth() + 1}_${yesterday.getDate()}`;
   const yChecklist = storageGet(yChecklistKey);
- 
-  if (!yChecklist) return; // App was accessed but checklist never touched
- 
+  if (!yChecklist) return;
   const submitted = yChecklist.sectionSubmitted || {};
   const incomplete = [];
   if (!submitted.opening) incomplete.push('Opening');
   if (!submitted.mid) incomplete.push('Mid-Service');
   if (!submitted.closing) incomplete.push('Closing');
- 
-  if (incomplete.length === 0) return; // All done, no alert needed
- 
-  // Mark alert as sent for today
+  if (incomplete.length === 0) return;
   storageSet(alertSentKey, true);
- 
-  // Import and send — dynamic to avoid circular dependency
   import('./emailjs').then(({ sendQuezEmail }) => {
     sendQuezEmail({
       subject: `⚠ Incomplete Checklist — ${yesterdayStr}`,
@@ -370,10 +312,8 @@ export const checkAndSendIncompleteAlert = () => {
  
 // ── Time clock report ─────────────────────────────────────
 export const buildTimeClockReport = () => {
-  const unsent = getUnsentPunches().filter(p => p.clockOutTime); // only complete punches
- 
+  const unsent = getUnsentPunches().filter(p => p.clockOutTime);
   if (!unsent.length) return null;
- 
   const lines = unsent.map(p => {
     const inTime = new Date(p.clockInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const outTime = new Date(p.clockOutTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -384,10 +324,8 @@ export const buildTimeClockReport = () => {
     const flag = p.autoClose ? ' ⚠ AUTO-CLOSED (no clock-out recorded)' : '';
     return `  ${p.date} | ${p.name} (${p.role}) | In: ${inTime} | Out: ${outTime} | ${duration}${flag}`;
   });
- 
   const firstDate = unsent[0]?.date || '';
   const lastDate = unsent[unsent.length - 1]?.date || '';
- 
   return {
     subject: `[Quez] Time Clock Report — ${firstDate} to ${lastDate}`,
     body: `TIME CLOCK REPORT\n═══════════════════════════════\nPeriod: ${firstDate} → ${lastDate}\nTotal Punches: ${unsent.length}\n\n${lines.join('\n')}\n═══════════════════════════════\nQuez Coffee Co. — Auto-Generated`,
@@ -434,4 +372,93 @@ export const isSectionUnlocked = (section) => {
     return hhmm >= (tl.closingUnlockTime || '13:00');
   }
   return true;
+};
+ 
+// ============================================================
+// SESSION 6 — Periodic Checklist Functions
+// ============================================================
+ 
+// ── ISO week helper ───────────────────────────────────────
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+ 
+function getQuarter(date) {
+  return Math.floor(date.getMonth() / 3) + 1;
+}
+ 
+// ── Key builders ──────────────────────────────────────────
+export const weeklyKey = (date = new Date()) => {
+  const week = getISOWeek(date);
+  return `quez_weekly_submitted_${date.getFullYear()}_W${String(week).padStart(2, '0')}`;
+};
+ 
+export const monthlyKey = (date = new Date()) => {
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  return `quez_monthly_submitted_${date.getFullYear()}_${mm}`;
+};
+ 
+export const quarterlyKey = (date = new Date()) => {
+  return `quez_quarterly_submitted_${date.getFullYear()}_Q${getQuarter(date)}`;
+};
+ 
+export const annualKey = (date = new Date()) => {
+  return `quez_annual_submitted_${date.getFullYear()}`;
+};
+ 
+// ── Due today? ────────────────────────────────────────────
+export const isWeeklyChecklistDue = () => new Date().getDay() === 1;
+ 
+export const isMonthlyChecklistDue = () => new Date().getDate() === 1;
+ 
+export const isQuarterlyChecklistDue = () => {
+  const d = new Date();
+  return d.getDate() === 1 && [0, 3, 6, 9].includes(d.getMonth());
+};
+ 
+export const isAnnualChecklistDue = () => {
+  const d = new Date();
+  return d.getMonth() === 0 && d.getDate() === 1;
+};
+ 
+// ── Already submitted? ────────────────────────────────────
+export const isWeeklySubmittedThisWeek = () =>
+  localStorage.getItem(weeklyKey()) === 'true';
+ 
+export const isMonthlySubmittedThisMonth = () =>
+  localStorage.getItem(monthlyKey()) === 'true';
+ 
+export const isQuarterlySubmittedThisQuarter = () =>
+  localStorage.getItem(quarterlyKey()) === 'true';
+ 
+export const isAnnualSubmittedThisYear = () =>
+  localStorage.getItem(annualKey()) === 'true';
+ 
+// ── Mark submitted ────────────────────────────────────────
+export const markWeeklySubmitted = () =>
+  localStorage.setItem(weeklyKey(), 'true');
+ 
+export const markMonthlySubmitted = () =>
+  localStorage.setItem(monthlyKey(), 'true');
+ 
+export const markQuarterlySubmitted = () =>
+  localStorage.setItem(quarterlyKey(), 'true');
+ 
+export const markAnnualSubmitted = () =>
+  localStorage.setItem(annualKey(), 'true');
+ 
+// ── Periodic checklist records ────────────────────────────
+export const savePeriodicChecklistRecord = (record) => {
+  const key = 'quez_periodic_checklist_records';
+  const existing = JSON.parse(localStorage.getItem(key) || '[]');
+  existing.push(record);
+  localStorage.setItem(key, JSON.stringify(existing));
+};
+ 
+export const getPeriodicChecklistRecords = () => {
+  return JSON.parse(localStorage.getItem('quez_periodic_checklist_records') || '[]');
 };
