@@ -586,7 +586,7 @@ const C = {
 
 const styles = {
   screen: { display: 'flex', flexDirection: 'column', minHeight: '100vh', background: C.black, paddingBottom: 80 },
-  header: { padding: '20px 20px 14px', background: C.dark, borderBottom: `1px solid ${C.border}` },
+  header: { padding: '20px 20px 14px', background: C.dark, borderBottom: `1px solid ${C.border}`, position: 'sticky', top: 0, zIndex: 10 },
   headerTitle: { fontFamily: 'Georgia, serif', fontSize: 19, fontWeight: 'normal', color: C.gold, letterSpacing: '0.04em', textTransform: 'uppercase', margin: '0 0 6px' },
   headerMeta: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 },
   metaName: { fontSize: 13, color: C.cream, fontWeight: 500 },

@@ -209,6 +209,9 @@ const S = {
     padding: '20px 20px 14px',
     borderBottom: '1px solid rgba(212,175,55,0.2)',
     background: '#1A1A1A',
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
   },
   headerLogo: {
     fontSize: 11,

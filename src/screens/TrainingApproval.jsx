@@ -431,6 +431,9 @@ const styles = {
     borderBottom: '1px solid #D4AF37',
     padding: '20px 20px 16px',
     textAlign: 'center',
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
   },
   headerLogo: {
     color: '#D4AF37',
