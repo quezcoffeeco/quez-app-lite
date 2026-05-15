@@ -145,7 +145,7 @@ export default function PreLaunchTimeline() {
         <div style={S.headerLogo}>✦ QUEZ COFFEE CO.</div>
         <div style={S.headerTitle}>Pre-Launch Timeline</div>
         <div style={S.headerSub}>
-          {totalDone} / {visibleTotal} complete · Soft Open Feb 2027
+          {totalDone} / {visibleTotal} complete · {pct}% · Soft Open Feb 2027
         </div>
         <div style={S.progressBar}>
           <div style={{ ...S.progressFill, width: `${pct}%` }} />
@@ -163,7 +163,19 @@ export default function PreLaunchTimeline() {
 
       <div style={S.body}>
         {/* Critical Gates — separate top-of-screen view */}
-        <CollapsibleSection id="gates" title="⚠ Critical Gates" subtitle="If any of these slip, the launch slips.">
+        {(() => {
+          const gateDone = CRITICAL_GATES.filter((g) =>
+            g.taskIds.every((tid) => progress[tid] && progress[tid].done)
+          ).length;
+          const gatePct = CRITICAL_GATES.length > 0 ? Math.round((gateDone / CRITICAL_GATES.length) * 100) : 0;
+          return (
+        <CollapsibleSection
+          id="gates"
+          title="⚠ Critical Gates"
+          subtitle="If any of these slip, the launch slips."
+          progressPct={gatePct}
+          headerRight={<span style={S.sectionCount}>{gateDone}/{CRITICAL_GATES.length}</span>}
+        >
           {CRITICAL_GATES.map((g) => {
             const allDone = g.taskIds.every((tid) => progress[tid] && progress[tid].done);
             const someDone = g.taskIds.some((tid) => progress[tid] && progress[tid].done);
@@ -183,6 +195,8 @@ export default function PreLaunchTimeline() {
             );
           })}
         </CollapsibleSection>
+          );
+        })()}
 
         {/* Each phase — collapsible */}
         {PHASES.map((phase) => {
@@ -194,12 +208,14 @@ export default function PreLaunchTimeline() {
           const tasksForCount = phase.tasks.filter((t) => !(progress[t.id] && progress[t.id].hidden));
           const done = tasksForCount.filter((t) => progress[t.id] && progress[t.id].done).length;
           const total = tasksForCount.length;
+          const phasePct = total > 0 ? Math.round((done / total) * 100) : 0;
           return (
             <CollapsibleSection
               key={phase.id}
               id={phase.id}
               title={phase.title}
               subtitle={phase.subtitle}
+              progressPct={phasePct}
               headerRight={
                 <span style={S.sectionCount}>{done}/{total}</span>
               }
@@ -280,7 +296,7 @@ export default function PreLaunchTimeline() {
   );
 }
 
-function CollapsibleSection({ id, title, subtitle, headerRight, children }) {
+function CollapsibleSection({ id, title, subtitle, headerRight, progressPct, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     const state = getCollapseState();
     return id in state ? !!state[id] : true;
@@ -290,6 +306,9 @@ function CollapsibleSection({ id, title, subtitle, headerRight, children }) {
     setCollapsed(next);
     persistCollapse(id, next);
   };
+  const hasProgress = typeof progressPct === 'number';
+  const pct = hasProgress ? Math.max(0, Math.min(100, progressPct)) : 0;
+  const allDone = hasProgress && pct >= 100;
   return (
     <div style={S.section}>
       <div style={{ ...S.sectionHeader, borderBottom: collapsed ? 'none' : S.sectionHeader.borderBottom }}>
@@ -317,6 +336,19 @@ function CollapsibleSection({ id, title, subtitle, headerRight, children }) {
         </button>
         {headerRight && <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 8 }}>{headerRight}</div>}
       </div>
+      {hasProgress && (
+        <div style={S.sectionProgressTrack}>
+          <div
+            style={{
+              ...S.sectionProgressFill,
+              width: `${pct}%`,
+              background: allDone
+                ? 'linear-gradient(90deg, #4CAF50, #6BBF6E)'
+                : 'linear-gradient(90deg, #D4AF37, #B8941C)',
+            }}
+          />
+        </div>
+      )}
       {!collapsed && <div style={S.sectionBody}>{children}</div>}
     </div>
   );
@@ -328,7 +360,7 @@ const S = {
   headerLogo: { color: '#D4AF37', fontSize: 11, letterSpacing: 3, fontWeight: 700, marginBottom: 4 },
   headerTitle: { fontSize: 22, fontFamily: 'Georgia, serif', fontWeight: 700, color: '#F5F0E8' },
   headerSub: { fontSize: 12, color: '#888', marginTop: 2 },
-  progressBar: { height: 4, background: '#222', borderRadius: 2, marginTop: 10, overflow: 'hidden' },
+  progressBar: { height: 8, background: '#222', borderRadius: 4, marginTop: 10, overflow: 'hidden', border: '1px solid rgba(212,175,55,0.2)' },
   progressFill: { height: '100%', background: 'linear-gradient(90deg, #D4AF37, #B8941C)', transition: 'width 0.3s ease' },
   showHiddenBtn: { marginTop: 10, background: 'transparent', border: '1px solid #333', color: '#888', fontSize: 11, padding: '4px 12px', borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em' },
 
@@ -340,6 +372,8 @@ const S = {
   sectionTitle: { fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#D4AF37', fontFamily: 'sans-serif' },
   sectionSub: { fontSize: 11, color: '#888', marginTop: 2 },
   sectionCount: { background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 10, color: '#D4AF37', fontSize: 11, padding: '2px 9px', fontWeight: 700 },
+  sectionProgressTrack: { height: 3, background: '#0D0D0D', overflow: 'hidden' },
+  sectionProgressFill: { height: '100%', transition: 'width 0.3s ease' },
   sectionBody: { padding: '4px 0' },
 
   taskRow: { display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', borderBottom: '1px solid #222' },
