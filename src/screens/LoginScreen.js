@@ -9,6 +9,7 @@ import {
   setPinLockout,
   clearPinLockout,
   updateEmployee,
+  GUEST_USER,
 } from '../utils/storage';
 import { t, roleLabel } from '../utils/i18n';
 import './LoginScreen.css';
@@ -345,7 +346,29 @@ export default function LoginScreen() {
             >
               {getButtonLabel()}
             </button>
- 
+
+            {/* Guest browse mode — no PIN, no clock-in, no persistence.
+                Routes to the standard barista flow but every business-data
+                write is silently dropped at the localStorage layer. */}
+            <button
+              className="ls-btn-ghost"
+              style={{ marginTop: 10 }}
+              onClick={() => {
+                login({
+                  ...GUEST_USER,
+                  location: selectedLocation || (locations[0] || 'Guest Preview'),
+                });
+              }}
+              type="button"
+            >
+              {language === 'es' ? 'Continuar como Invitado (vista previa)' : 'Continue as Guest (preview)'}
+            </button>
+            <p style={{ fontSize: 11, color: '#8A8A8A', textAlign: 'center', marginTop: 6 }}>
+              {language === 'es'
+                ? 'Solo lectura. Nada de lo que hagas se guardará.'
+                : 'Read-only. Nothing you do will be saved.'}
+            </p>
+
           </div>
         )}
  

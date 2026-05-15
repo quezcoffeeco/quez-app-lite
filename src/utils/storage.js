@@ -42,6 +42,22 @@ const DEFAULT_EMPLOYEES = [
     trainingBypass: true,
   },
 ];
+
+// ── Guest user (browse-only preview, no PIN, never persisted to employees) ──
+// Triggered from the LoginScreen "Continue as Guest" button. When this user
+// is the session, AppContext intercepts localStorage.setItem and drops every
+// write outside a tiny allowlist — so nothing the Guest does affects real
+// data. Not added to DEFAULT_EMPLOYEES so they never appear in dropdowns,
+// the trainer list, the Settings → Employees screen, etc.
+export const GUEST_USER = Object.freeze({
+  id: 'emp_guest',
+  name: 'Guest',
+  role: 'barista',
+  pin: null,
+  active: true,
+  guest: true,
+  trainingBypass: true,
+});
  
 // ── Core primitives ───────────────────────────────────────
  

@@ -201,12 +201,27 @@ function AppInner() {
     push(screen);
   };
 
+  const isGuest = !!session?.guest;
+
   return (
     <div className="app">
       {/* Global clock — top-right on every post-login screen */}
       <GlobalClock />
 
       <div className="app-content">
+        {/* Guest mode banner — visible on every screen so the operator knows
+            they're in read-only preview mode and changes won't persist. */}
+        {isGuest && (
+          <div style={guestBannerStyles.bar}>
+            <span style={guestBannerStyles.dot} />
+            <span style={guestBannerStyles.text}>
+              {language === 'es'
+                ? 'Modo Invitado · Vista previa de solo lectura — nada se guardará'
+                : 'Guest Mode · Read-only preview — nothing will be saved'}
+            </span>
+          </div>
+        )}
+
         {/* In-flow back bar — sits above each screen's own header so titles stay centered */}
         {canGoBack && (
           <div style={backBtnStyles.bar}>
@@ -282,6 +297,37 @@ function AppInner() {
     </div>
   );
 }
+
+const guestBannerStyles = {
+  bar: {
+    background: 'rgba(212,175,55,0.12)',
+    borderBottom: '1px solid rgba(212,175,55,0.35)',
+    padding: '8px 14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    position: 'sticky',
+    top: 0,
+    zIndex: 28,
+    fontFamily: "'Inter', 'Helvetica Neue', sans-serif",
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    background: '#D4AF37',
+    boxShadow: '0 0 6px rgba(212,175,55,0.7)',
+    flexShrink: 0,
+  },
+  text: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    color: '#D4AF37',
+    textTransform: 'uppercase',
+  },
+};
 
 const backBtnStyles = {
   bar: {

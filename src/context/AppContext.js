@@ -15,6 +15,8 @@ function homeScreenForRole(role) {
 // ── Logout Popup — lives at provider level, never unmounted ──
 const LogoutPopup = ({ session, onSignOutOnly, onClockOutAndSignOut, onCancel }) => {
   const isOwner = session?.role === 'owner';
+  const isGuest = !!session?.guest;
+  const hideClockOut = isOwner || isGuest; // Guest didn't clock in, owners don't punch
   const lang = getSettings().language || 'en';
  
   const S = {
@@ -57,14 +59,14 @@ const LogoutPopup = ({ session, onSignOutOnly, onClockOutAndSignOut, onCancel })
           {lang === 'es' ? 'Cerrar Sesión' : 'Sign Out'}
         </div>
         <p style={S.sub}>
-          {isOwner
+          {hideClockOut
             ? (lang === 'es' ? '¿Deseas cerrar sesión?' : 'Are you sure you want to sign out?')
             : (lang === 'es'
                 ? '¿Estás terminando tu turno o solo saliendo temporalmente?'
                 : 'Are you ending your shift or just stepping away?')}
         </p>
- 
-        {!isOwner && (
+
+        {!hideClockOut && (
           <button style={{ ...S.btn, ...S.btnGold }} onClick={onClockOutAndSignOut} type="button">
             {lang === 'es' ? 'Registrar Salida y Cerrar Sesión' : 'Clock Out & Sign Out'}
           </button>
@@ -82,6 +84,32 @@ const LogoutPopup = ({ session, onSignOutOnly, onClockOutAndSignOut, onCancel })
   );
 };
  
+// Guest mode: monkey-patch localStorage.setItem so business-data writes are
+// silently dropped while the Guest user is the session. Tiny allowlist
+// permits the session record itself + a few pure-UI collapse-state keys so
+// navigation feels normal. Original setter is captured on the window so we
+// can restore it cleanly on logout.
+const GUEST_ALLOW = /^(quez_session|quez_owner_panel_collapsed|quez_prelaunch_panel_collapsed|quez_dashboard_panel)/;
+function installGuestMode() {
+  if (typeof window === 'undefined') return;
+  if (window.__quezOriginalSetItem) return; // already installed
+  const original = window.localStorage.setItem.bind(window.localStorage);
+  window.__quezOriginalSetItem = original;
+  window.localStorage.setItem = function (key, value) {
+    if (typeof key !== 'string') return original(key, value);
+    if (!key.startsWith('quez_')) return original(key, value); // foreign keys pass through
+    if (GUEST_ALLOW.test(key)) return original(key, value);
+    // silently drop
+  };
+}
+function uninstallGuestMode() {
+  if (typeof window === 'undefined') return;
+  if (window.__quezOriginalSetItem) {
+    window.localStorage.setItem = window.__quezOriginalSetItem;
+    delete window.__quezOriginalSetItem;
+  }
+}
+
 export function AppProvider({ children }) {
   const [session, setSessionState] = useState(null);
   const [currentScreen, setCurrentScreen] = useState('login');
@@ -96,9 +124,13 @@ export function AppProvider({ children }) {
     setLanguage(settings.language || 'en');
     const saved = getSession();
     if (saved) {
+      // If the saved session is a Guest, re-install the write-blocker BEFORE
+      // anything else so refreshes mid-Guest-session stay read-only.
+      if (saved.guest) installGuestMode();
       // Refresh session against current employee record — catches role upgrades
       // (e.g. trainee → barista was approved while logged in) and name edits.
-      const freshEmp = getEmployees().find((e) => e.id === saved.id);
+      // Guest is not in the employees list, so skip that lookup for Guest.
+      const freshEmp = saved.guest ? null : getEmployees().find((e) => e.id === saved.id);
       const refreshed = freshEmp
         ? { ...saved, role: freshEmp.role, name: freshEmp.name }
         : saved;
@@ -122,20 +154,27 @@ export function AppProvider({ children }) {
   }, []);
 
   const login = useCallback((employeeData) => {
+    // Install the guest write-blocker BEFORE the session is persisted so the
+    // very first write (session) goes through the allowlist path.
+    if (employeeData?.guest) installGuestMode();
     setSession(employeeData);
     setSessionState(employeeData);
     setCurrentScreen(homeScreenForRole(employeeData.role));
     setHistory([]);
   }, []);
 
-  // Actual logout — clears session and navigates to login
+  // Actual logout — clears session and navigates to login. If the outgoing
+  // session was Guest, restore the original localStorage.setItem so the
+  // next signed-in user can save again.
   const doLogout = useCallback(() => {
+    const wasGuest = session?.guest;
     clearSession();
+    if (wasGuest) uninstallGuestMode();
     setSessionState(null);
     setCurrentScreen('login');
     setHistory([]);
     setShowLogoutPopup(false);
-  }, []);
+  }, [session]);
 
   // Called by nav button — shows popup instead of logging out immediately
   const logout = useCallback(() => {
@@ -178,8 +217,12 @@ export function AppProvider({ children }) {
     const tick = setInterval(() => {
       const idleMs = Date.now() - lastActivityRef.current;
       if (idleMs > IDLE_LOCK_MINUTES * 60 * 1000) {
-        logAudit('session_lock', { employeeName: session.name, reason: 'idle' });
+        // Don't write an audit row for a Guest auto-lock; not real activity.
+        if (!session.guest) {
+          logAudit('session_lock', { employeeName: session.name, reason: 'idle' });
+        }
         clearSession();
+        if (session.guest) uninstallGuestMode();
         setSessionState(null);
         setCurrentScreen('login');
         setHistory([]);
@@ -219,6 +262,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       session,
       currentUser: session,
+      isGuest: !!session?.guest,
       currentScreen, language, setLanguage,
       login, logout, navigate, push, goBack, canGoBack, isReady,
     }}>
