@@ -1,527 +1,653 @@
 // ============================================================
 // QUEZ APP LITE — Daily Checklist Screen
-// Sessions 4 + 5: Opening (S4) + Mid-Service + Closing (S5)
+// Checklist state is global (date-based), not per-user.
+// Anyone who logs in picks up exactly where it was left off.
 // ============================================================
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { OPENING_ITEMS, MID_SERVICE_ITEMS, CLOSING_ITEMS } from '../data/checklistItems';
-import {
-  sendOutOfRangeAlert,
-  sendDailyChecklistEmail,
-  sendClockOutEmail,
-} from '../utils/emailService';
+import { sendQuezEmail } from '../utils/emailjs';
 import {
   saveDailyChecklistRecord,
   markDailyChecklistSubmitted,
-  isDailyChecklistSubmittedToday,
   isSectionUnlocked,
   loadSettings,
-  loadCurrentUser,
+  getSession,
   saveFlaggedItem,
+  saveChecklistState,
+  loadChecklistState,
+  storageGet,
 } from '../utils/storage';
 
 // ── Helpers ───────────────────────────────────────────────
-const formatTime = (isoString) => {
-  if (!isoString) return '—';
-  return new Date(isoString).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+const fmtTime = (iso) => {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 };
 
-const formatDuration = (startIso, endIso) => {
+const fmtDate = () =>
+  new Date().toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+const fmtDuration = (startIso, endIso) => {
   if (!startIso || !endIso) return '—';
-  const diffMs = new Date(endIso) - new Date(startIso);
-  const totalMin = Math.floor(diffMs / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
+  const ms = new Date(endIso) - new Date(startIso);
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
 
-const isOutOfRange = (item, value) => {
-  if (item.type !== 'temp' && item.type !== 'ppm') return false;
-  if (value === '' || value === null || value === undefined) return false;
-  const num = parseFloat(value);
-  if (isNaN(num)) return false;
-  return num < item.min || num > item.max;
-};
-
-const getRangeLabel = (item) => {
-  if (item.type === 'temp' || item.type === 'ppm') {
-    if (item.min === 0) return `≤${item.max}${item.unit}`;
-    if (item.max === 212) return `≥${item.min}${item.unit}`;
-    return `${item.min}–${item.max} ${item.unit}`;
+const isItemComplete = (item, values) => {
+  const val = values[item.id];
+  if (item.type === 'check') return val === 'yes';
+  if (item.type === 'range') return val === 'ok' || val === 'flag';
+  if (item.type === 'text') {
+    if (item.required) return val && val.trim() !== '';
+    return true;
   }
-  return '';
+  return false;
 };
 
-// ── Section component ─────────────────────────────────────
-const ChecklistSection = ({ section, lang, values, onChange, onRangeAlert }) => {
-  const label = lang === 'es' ? section.sectionLabelEs : section.sectionLabel;
-  const sectionNote = lang === 'es' ? section.noteEs : section.note;
+const isSectionGroupComplete = (groups, values) => {
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (!isItemComplete(item, values)) return false;
+      if (item.type === 'range' && values[item.id] === 'flag') {
+        const ca = values[`${item.id}_corrective`];
+        if (!ca || ca.trim() === '') return false;
+      }
+    }
+  }
+  return true;
+};
+
+// ── Corrective Action Modal ───────────────────────────────
+const CorrectiveModal = ({ item, lang, onSave, onClose }) => {
+  const [text, setText] = useState('');
+  const label = lang === 'es' ? item.labelEs : item.label;
+  const range = lang === 'es' ? item.rangeLabelEs : item.rangeLabel;
 
   return (
-    <div className="cl-section">
-      <div className="cl-section-header">
-        <span className="cl-section-title">{label}</span>
-        {sectionNote && <span className="cl-section-note">{sectionNote}</span>}
-      </div>
-      <div className="cl-items">
-        {section.items.map((item) => (
-          <ChecklistItem
-            key={item.id}
-            item={item}
-            lang={lang}
-            value={values[item.id] || ''}
-            correctiveAction={values[`${item.id}_corrective`] || ''}
-            onChange={onChange}
-            onRangeAlert={onRangeAlert}
-          />
-        ))}
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
+        <div style={styles.modalHeader}>
+          <span style={styles.modalWarning}>⚠</span>
+          <span style={styles.modalTitle}>
+            {lang === 'es' ? 'Fuera de Rango' : 'Out of Range'}
+          </span>
+        </div>
+        <p style={styles.modalItem}>{label}</p>
+        <p style={styles.modalRange}>
+          {lang === 'es' ? 'Rango aceptable:' : 'Acceptable range:'}{' '}
+          <strong style={{ color: '#D4AF37' }}>{range}</strong>
+        </p>
+        <p style={styles.modalPrompt}>
+          {lang === 'es'
+            ? 'Describe la acción correctiva tomada:'
+            : 'Describe the corrective action taken:'}
+        </p>
+        <textarea
+          style={styles.modalTextarea}
+          placeholder={lang === 'es' ? 'Acción tomada...' : 'Action taken...'}
+          value={text}
+          onChange={e => setText(e.target.value)}
+          autoFocus
+          rows={3}
+        />
+        <div style={styles.modalBtns}>
+          <button style={styles.modalBtnGhost} onClick={onClose} type="button">
+            {lang === 'es' ? 'Cancelar' : 'Cancel'}
+          </button>
+          <button
+            style={{
+              ...styles.modalBtnGold,
+              opacity: text.trim() ? 1 : 0.4,
+              cursor: text.trim() ? 'pointer' : 'not-allowed',
+            }}
+            onClick={() => text.trim() && onSave(text.trim())}
+            type="button"
+          >
+            {lang === 'es' ? 'Guardar' : 'Save'}
+          </button>
+        </div>
       </div>
     </div>
   );
 };
 
-// ── Individual item component ─────────────────────────────
-const ChecklistItem = ({ item, lang, value, correctiveAction, onChange, onRangeAlert }) => {
+// ── Range Toggle Item ─────────────────────────────────────
+const RangeItem = ({ item, lang, value, onOk, onFlag }) => {
+  const label = lang === 'es' ? item.labelEs : item.label;
+  const rangeLabel = lang === 'es' ? item.rangeLabelEs : item.rangeLabel;
+  const note = lang === 'es' ? item.noteEs : item.note;
+  const isFlagged = value === 'flag';
+  const isOk = value === 'ok';
+
+  return (
+    <div style={{ ...styles.item, ...(isFlagged ? styles.itemFlagged : isOk ? styles.itemOk : {}) }}>
+      <div style={styles.itemLeft}>
+        <span style={styles.itemLabel}>{label}</span>
+        <span style={styles.itemRange}>{rangeLabel}</span>
+        {note ? <span style={styles.itemNote}>{note}</span> : null}
+      </div>
+      <div style={styles.rangeToggle}>
+        <button
+          style={{ ...styles.rangeBtn, ...(isOk ? styles.rangeBtnOk : styles.rangeBtnOkInactive) }}
+          onClick={onOk} type="button" aria-label="Within range"
+        >✓</button>
+        <button
+          style={{ ...styles.rangeBtn, ...(isFlagged ? styles.rangeBtnFlag : styles.rangeBtnFlagInactive) }}
+          onClick={onFlag} type="button" aria-label="Out of range"
+        >✗</button>
+      </div>
+    </div>
+  );
+};
+
+// ── Check Toggle Item ─────────────────────────────────────
+const CheckItem = ({ item, lang, value, onChange }) => {
   const label = lang === 'es' ? item.labelEs : item.label;
   const note = lang === 'es' ? item.noteEs : item.note;
-  const flagged = isOutOfRange(item, value);
-  const rangeLabel = getRangeLabel(item);
-
-  const handleNumericBlur = () => {
-    if (flagged) {
-      onRangeAlert(item, value);
-    }
-  };
+  const isChecked = value === 'yes';
 
   return (
-    <div className={`cl-item ${flagged ? 'cl-item--flagged' : ''}`}>
-      <div className="cl-item-main">
-        <div className="cl-item-label">
-          <span className="cl-item-name">{label}</span>
-          {note && <span className="cl-item-note">{note}</span>}
-          {flagged && (
-            <span className="cl-item-flag-badge">
-              ⚠ {lang === 'es' ? 'FUERA DE RANGO' : 'OUT OF RANGE'}
-            </span>
-          )}
-        </div>
-        <div className="cl-item-control">
-          {item.type === 'check' && (
-            <button
-              className={`cl-toggle ${value === 'yes' ? 'cl-toggle--on' : ''}`}
-              onClick={() => onChange(item.id, value === 'yes' ? '' : 'yes')}
-              type="button"
-            >
-              {value === 'yes' ? '✓' : '—'}
-            </button>
-          )}
-          {(item.type === 'temp' || item.type === 'ppm') && (
-            <input
-              className={`cl-input cl-input--num ${flagged ? 'cl-input--flagged' : ''}`}
-              type="number"
-              inputMode="decimal"
-              placeholder={rangeLabel}
-              value={value}
-              onChange={(e) => onChange(item.id, e.target.value)}
-              onBlur={handleNumericBlur}
-            />
-          )}
-          {item.type === 'text' && (
-            <input
-              className="cl-input cl-input--text"
-              type="text"
-              placeholder={lang === 'es' ? 'Escribir...' : 'Enter...'}
-              value={value}
-              onChange={(e) => onChange(item.id, e.target.value)}
-            />
-          )}
-          {item.type === 'time' && (
-            <input
-              className="cl-input cl-input--time"
-              type="time"
-              value={value}
-              onChange={(e) => onChange(item.id, e.target.value)}
-            />
-          )}
-        </div>
+    <div style={{ ...styles.item, ...(isChecked ? styles.itemOk : {}) }}>
+      <div style={styles.itemLeft}>
+        <span style={styles.itemLabel}>{label}</span>
+        {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
-      {flagged && (
-        <div className="cl-corrective">
-          <label className="cl-corrective-label">
-            {lang === 'es' ? '→ Acción correctiva requerida:' : '→ Corrective action required:'}
-          </label>
-          <input
-            className="cl-input cl-input--corrective"
-            type="text"
-            placeholder={lang === 'es' ? 'Describa la acción tomada...' : 'Describe action taken...'}
-            value={correctiveAction}
-            onChange={(e) => onChange(`${item.id}_corrective`, e.target.value)}
-          />
-        </div>
-      )}
+      <button
+        style={{ ...styles.checkBtn, ...(isChecked ? styles.checkBtnOn : styles.checkBtnOff) }}
+        onClick={() => onChange(isChecked ? '' : 'yes')} type="button"
+      >
+        {isChecked ? '✓' : '—'}
+      </button>
     </div>
   );
 };
 
-// ── Tab bar ───────────────────────────────────────────────
+// ── Text Item ─────────────────────────────────────────────
+const TextItem = ({ item, lang, value, onChange }) => {
+  const label = lang === 'es' ? item.labelEs : item.label;
+  const note = lang === 'es' ? item.noteEs : item.note;
+
+  return (
+    <div style={styles.item}>
+      <div style={styles.itemLeft}>
+        <span style={styles.itemLabel}>{label}</span>
+        {note ? <span style={styles.itemNote}>{note}</span> : null}
+      </div>
+      <input
+        style={styles.textInput}
+        type="text"
+        placeholder={lang === 'es' ? 'Escribir...' : 'Enter...'}
+        value={value || ''}
+        onChange={e => onChange(e.target.value)}
+      />
+    </div>
+  );
+};
+
+// ── Section Block ─────────────────────────────────────────
+const SectionBlock = ({ group, lang, values, onCheck, onRangeOk, onRangeFlag }) => {
+  const label = lang === 'es' ? group.sectionLabelEs : group.sectionLabel;
+  const note = lang === 'es' ? group.noteEs : group.note;
+
+  return (
+    <div style={styles.sectionBlock}>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionTitle}>{label}</span>
+        {note && <span style={styles.sectionNote}>{note}</span>}
+      </div>
+      {group.items.map(item => {
+        if (item.type === 'range') return (
+          <RangeItem key={item.id} item={item} lang={lang} value={values[item.id] || ''}
+            onOk={() => onRangeOk(item)} onFlag={() => onRangeFlag(item)} />
+        );
+        if (item.type === 'check') return (
+          <CheckItem key={item.id} item={item} lang={lang} value={values[item.id] || ''}
+            onChange={val => onCheck(item.id, val)} />
+        );
+        if (item.type === 'text') return (
+          <TextItem key={item.id} item={item} lang={lang} value={values[item.id] || ''}
+            onChange={val => onCheck(item.id, val)} />
+        );
+        return null;
+      })}
+    </div>
+  );
+};
+
 const TABS = [
   { id: 'opening', label: 'Opening', labelEs: 'Apertura' },
   { id: 'mid', label: 'Mid-Service', labelEs: 'Medio Servicio' },
   { id: 'closing', label: 'Closing', labelEs: 'Cierre' },
 ];
 
+// ── Build email body ──────────────────────────────────────
+const buildEmailBody = ({ sectionName, groups, values, startTime, submitTime, operator, location }) => {
+  let body = `${sectionName.toUpperCase()} CHECKLIST\n`;
+  body += `═══════════════════════════════\n`;
+  body += `Operator:   ${operator}\nLocation:   ${location}\nDate:       ${fmtDate()}\n`;
+  body += `Started:    ${fmtTime(startTime)}\nSubmitted:  ${fmtTime(submitTime)}\n`;
+  body += `═══════════════════════════════\n\n`;
+
+  const flagged = [];
+  for (const group of groups) {
+    body += `── ${group.sectionLabel.toUpperCase()} ──\n`;
+    for (const item of group.items) {
+      const val = values[item.id] || '';
+      let display = '—';
+      if (item.type === 'check') display = val === 'yes' ? '✓ Yes' : '✗ No';
+      if (item.type === 'range') {
+        if (val === 'ok') display = '✓ Within Range';
+        else if (val === 'flag') {
+          display = '✗ OUT OF RANGE';
+          flagged.push({ label: item.label, range: item.rangeLabel, corrective: values[`${item.id}_corrective`] || '(none)' });
+        }
+      }
+      if (item.type === 'text') display = val || '(blank)';
+      body += `  ${item.label}: ${display}\n`;
+      if (item.type === 'range' && val === 'flag') {
+        body += `    → Corrective: ${values[`${item.id}_corrective`] || '(none)'}\n`;
+      }
+    }
+    body += '\n';
+  }
+
+  if (flagged.length) {
+    body += `⚠ FLAGGED (${flagged.length}):\n`;
+    for (const f of flagged) {
+      body += `  • ${f.label} (${f.range}) → ${f.corrective}\n`;
+    }
+  }
+  body += `\n═══════════════════════════════\nQuez Coffee Co. — Iowa DIAL Compliance`;
+  return body;
+};
+
 // ── Main Screen ───────────────────────────────────────────
-const DailyChecklist = ({ onClockOut }) => {
+const DailyChecklist = () => {
   const settings = loadSettings();
   const lang = settings.language || 'en';
-  const user = loadCurrentUser();
+  const user = getSession();
+
+  // Load global checklist state from localStorage
+  const savedState = loadChecklistState();
 
   const [activeTab, setActiveTab] = useState('opening');
-  const [values, setValues] = useState({});
-  const [alertsSent, setAlertsSent] = useState(new Set());
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(isDailyChecklistSubmittedToday());
+  const [values, setValues] = useState(savedState.values || {});
+  const [sectionStartTimes, setSectionStartTimes] = useState(savedState.sectionStartTimes || {});
+  const [sectionSubmitted, setSectionSubmitted] = useState(
+    savedState.sectionSubmitted || { opening: false, mid: false, closing: false }
+  );
+  const [correctiveModal, setCorrectiveModal] = useState(null);
+  const [submitting, setSubmitting] = useState(null);
   const [toast, setToast] = useState(null);
 
   const openingUnlocked = isSectionUnlocked('opening');
   const closingUnlocked = isSectionUnlocked('closing');
 
+  // ── Persist state to localStorage on every change ────────
+  const persistState = useCallback((newValues, newStartTimes, newSubmitted) => {
+    saveChecklistState({
+      values: newValues,
+      sectionStartTimes: newStartTimes,
+      sectionSubmitted: newSubmitted,
+    });
+  }, []);
+
+  // ── Auto-timestamp on first touch ─────────────────────────
+  const recordStartTime = useCallback((section) => {
+    setSectionStartTimes(prev => {
+      if (prev[section]) return prev;
+      const next = { ...prev, [section]: new Date().toISOString() };
+      persistState(values, next, sectionSubmitted);
+      return next;
+    });
+  }, [values, sectionSubmitted, persistState]);
+
   const showToast = (msg, type = 'info') => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
+    setTimeout(() => setToast(null), 3500);
   };
 
-  // ── Value change handler ─────────────────────────────────
-  const handleChange = (id, val) => {
-    setValues((prev) => ({ ...prev, [id]: val }));
+  // ── Value handlers ────────────────────────────────────────
+  const handleCheck = (section, id, val) => {
+    recordStartTime(section);
+    setValues(prev => {
+      const next = { ...prev, [id]: val };
+      persistState(next, sectionStartTimes, sectionSubmitted);
+      return next;
+    });
   };
 
-  // ── Out-of-range alert ────────────────────────────────────
-  const handleRangeAlert = async (item, value) => {
-    const alertKey = `${item.id}_${value}`;
-    if (alertsSent.has(alertKey)) return;
-    setAlertsSent((prev) => new Set(prev).add(alertKey));
+  const handleRangeOk = (section, item) => {
+    recordStartTime(section);
+    setValues(prev => {
+      const next = { ...prev, [item.id]: 'ok' };
+      persistState(next, sectionStartTimes, sectionSubmitted);
+      return next;
+    });
+  };
 
-    const flagEntry = {
+  const handleRangeFlag = (section, item) => {
+    recordStartTime(section);
+    setCorrectiveModal({ item, section });
+  };
+
+  const handleCorrectiveSave = (text) => {
+    const { item, section } = correctiveModal;
+    setValues(prev => {
+      const next = { ...prev, [item.id]: 'flag', [`${item.id}_corrective`]: text };
+      persistState(next, sectionStartTimes, sectionSubmitted);
+      return next;
+    });
+    saveFlaggedItem({
       label: item.label,
-      value: `${value} ${item.unit || ''}`,
-      acceptableRange: getRangeLabel(item),
-      correctiveAction: values[`${item.id}_corrective`] || '(pending)',
-      operator: user?.name || 'Unknown',
-      section: activeTab,
-      timestamp: new Date().toISOString(),
-    };
-    saveFlaggedItem(flagEntry);
-
-    await sendOutOfRangeAlert({
+      rangeLabel: item.rangeLabel,
+      correctiveAction: text,
       operator: user?.name || 'Unknown',
       location: user?.location || 'Unknown',
-      item: item.label,
-      value: `${value} ${item.unit || ''}`,
-      acceptableRange: getRangeLabel(item),
-      section: activeTab === 'opening' ? 'Opening' : activeTab === 'mid' ? 'Mid-Service' : 'Closing',
+      section,
     });
+    sendQuezEmail({
+      subject: `⚠ Out of Range: ${item.label} — ${fmtDate()}`,
+      templateParams: {
+        event_type: 'Out-of-Range Alert',
+        employee_name: user?.name || 'Unknown',
+        location: user?.location || 'Unknown',
+        date: fmtDate(),
+        message: `OUT OF RANGE: ${item.label}\nAcceptable range: ${item.rangeLabel}\nCorrective action: ${text}\nOperator: ${user?.name}\nLocation: ${user?.location}`,
+      },
+    });
+    showToast(lang === 'es' ? '⚠ Alerta enviada al propietario' : '⚠ Alert sent to owner', 'warning');
+    setCorrectiveModal(null);
+  };
+
+  // ── Completion ────────────────────────────────────────────
+  const openingComplete = isSectionGroupComplete(OPENING_ITEMS, values);
+  const midComplete = isSectionGroupComplete(MID_SERVICE_ITEMS, values);
+  const closingComplete = isSectionGroupComplete(CLOSING_ITEMS, values);
+
+  // ── Progress ──────────────────────────────────────────────
+  const allGroups = [...OPENING_ITEMS, ...MID_SERVICE_ITEMS, ...CLOSING_ITEMS];
+  const totalItems = allGroups.reduce((a, g) => a + g.items.filter(i => i.type !== 'text' || i.required).length, 0);
+  const doneItems = allGroups.reduce((a, g) => a + g.items.filter(item => isItemComplete(item, values)).length, 0);
+  const progressPct = Math.round((doneItems / totalItems) * 100);
+
+  // ── Submit section ────────────────────────────────────────
+  const handleSectionSubmit = async (section) => {
+    if (submitting) return;
+    setSubmitting(section);
+
+    const now = new Date().toISOString();
+    const startTime = sectionStartTimes[section] || now;
+
+    const groupMap = { opening: OPENING_ITEMS, mid: MID_SERVICE_ITEMS, closing: CLOSING_ITEMS };
+    const nameMap = { opening: 'Opening', mid: 'Mid-Service', closing: 'Closing' };
+
+    const groups = groupMap[section];
+    const sectionName = nameMap[section];
+
+    let body = buildEmailBody({
+      sectionName, groups, values,
+      startTime, submitTime: now,
+      operator: user?.name || 'Unknown',
+      location: user?.location || 'Unknown',
+    });
+
+    if (section === 'closing') {
+      // Drink count from order system (placeholder until order screen built)
+      const orderData = storageGet('quez_order_totals');
+      if (orderData && orderData.totalCups > 0) {
+        body += `\n\nDRINK COUNT — TODAY\n═══════════════════════════════\nTotal Cups: ${orderData.totalCups}\n`;
+        if (orderData.breakdown) {
+          for (const [name, count] of Object.entries(orderData.breakdown)) {
+            if (count > 0) body += `  ${name}: ${count}\n`;
+          }
+        }
+        localStorage.removeItem('quez_order_totals');
+      } else {
+        body += `\n\nDRINK COUNT: Order tracking active in future update.`;
+      }
+      saveDailyChecklistRecord({
+        operator: user?.name || 'Unknown',
+        location: user?.location || 'Unknown',
+        date: fmtDate(),
+        submittedAt: now,
+      });
+      markDailyChecklistSubmitted(user?.name, user?.location);
+    }
+
+    await sendQuezEmail({
+      subject: `[Quez] ${sectionName} Checklist — ${user?.name || 'Unknown'} — ${fmtDate()}`,
+      templateParams: {
+        event_type: `${sectionName} Checklist`,
+        employee_name: user?.name || 'Unknown',
+        location: user?.location || 'Unknown',
+        date: fmtDate(),
+        message: body,
+      },
+    });
+
+    const newSubmitted = { ...sectionSubmitted, [section]: true };
+    setSectionSubmitted(newSubmitted);
+    persistState(values, sectionStartTimes, newSubmitted);
+    setSubmitting(null);
 
     showToast(
-      lang === 'es'
-        ? `⚠ Alerta enviada: ${item.labelEs}`
-        : `⚠ Alert sent: ${item.label}`,
-      'warning'
+      lang === 'es' ? `✓ ${sectionName} enviado` : `✓ ${sectionName} checklist submitted`,
+      'success'
     );
+
+    if (section === 'opening') setActiveTab('mid');
+    if (section === 'mid') setActiveTab('closing');
   };
 
-  // ── Completion checks ─────────────────────────────────────
-  const isSectionComplete = (sectionGroups) => {
-    for (const group of sectionGroups) {
-      for (const item of group.items) {
-        const val = values[item.id];
-        // Required fields: check = must be 'yes', numeric = must have a value, time = must have a value
-        if (item.type === 'check' && val !== 'yes') return false;
-        if ((item.type === 'temp' || item.type === 'ppm') && (!val || val === '')) return false;
-        if (item.type === 'time' && (!val || val === '')) return false;
-        // text fields (low_stock, waste_dump_site) are optional unless mandatory
-        // waste_dump_site IS required
-        if (item.id === 'waste_dump_site' && (!val || val.trim() === '')) return false;
-        // If flagged, corrective action is required
-        if (isOutOfRange(item, val) && (!values[`${item.id}_corrective`] || values[`${item.id}_corrective`].trim() === '')) {
-          return false;
-        }
-      }
-    }
-    return true;
-  };
-
-  const openingComplete = isSectionComplete(OPENING_ITEMS);
-  const midComplete = isSectionComplete(MID_SERVICE_ITEMS);
-  const closingComplete = isSectionComplete(CLOSING_ITEMS);
-  const allComplete = openingComplete && midComplete && closingComplete;
-
-  // ── Progress calculation ──────────────────────────────────
-  const countItems = (groups) =>
-    groups.reduce((acc, g) => acc + g.items.length, 0);
-
-  const countCompleted = (groups) => {
-    let done = 0;
-    for (const group of groups) {
-      for (const item of group.items) {
-        const val = values[item.id];
-        if (item.type === 'check' && val === 'yes') done++;
-        else if ((item.type === 'temp' || item.type === 'ppm') && val && val !== '') done++;
-        else if (item.type === 'time' && val && val !== '') done++;
-        else if (item.type === 'text') done++; // text fields always count
-      }
-    }
-    return done;
-  };
-
-  const allGroups = [...OPENING_ITEMS, ...MID_SERVICE_ITEMS, ...CLOSING_ITEMS];
-  const totalItems = countItems(allGroups);
-  const completedItems = countCompleted(allGroups);
-  const progressPct = Math.round((completedItems / totalItems) * 100);
-
-  // ── Build email-ready section data ────────────────────────
-  const buildSectionData = (groups) =>
-    groups.map((group) => ({
-      sectionLabel: group.sectionLabel,
-      items: group.items.map((item) => ({
-        label: item.label,
-        value: values[item.id] || '',
-        flagged: isOutOfRange(item, values[item.id]),
-        correctiveAction: values[`${item.id}_corrective`] || '',
-        acceptableRange: getRangeLabel(item),
-      })),
-    }));
-
-  // ── Submit handler ────────────────────────────────────────
-  const handleSubmit = async () => {
-    if (!allComplete || submitting) return;
-    setSubmitting(true);
-
-    const now = new Date();
-    const date = now.toLocaleDateString('en-US', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-    });
-    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-    const allSections = [
-      ...buildSectionData(OPENING_ITEMS),
-      ...buildSectionData(MID_SERVICE_ITEMS),
-      ...buildSectionData(CLOSING_ITEMS),
-    ];
-
-    const flaggedItems = allSections
-      .flatMap((s) => s.items)
-      .filter((i) => i.flagged);
-
-    // Save to localStorage
-    const record = {
-      operator: user?.name || 'Unknown',
-      role: user?.role || 'Unknown',
-      location: user?.location || 'Unknown',
-      date,
-      submittedAt: now.toISOString(),
-      sections: allSections,
-      flaggedItems,
-    };
-    saveDailyChecklistRecord(record);
-    markDailyChecklistSubmitted(user?.name, user?.location);
-
-    // Send full daily log email
-    await sendDailyChecklistEmail({
-      operator: user?.name || 'Unknown',
-      location: user?.location || 'Unknown',
-      date,
-      sections: allSections,
-      flaggedItems,
-    });
-
-    // Send clock-out email
-    const clockInTime = user?.clockInTime
-      ? formatTime(user.clockInTime)
-      : '(not recorded)';
-    const clockOutTime = time;
-    const duration = formatDuration(user?.clockInTime, now.toISOString());
-
-    await sendClockOutEmail({
-      name: user?.name || 'Unknown',
-      role: user?.role || 'Unknown',
-      location: user?.location || 'Unknown',
-      clockInTime,
-      clockOutTime,
-      duration,
-    });
-
-    setSubmitting(false);
-    setSubmitted(true);
-
-    // Notify parent to handle navigation/clock-out UI
-    if (onClockOut) {
-      onClockOut({ clockOutTime: now.toISOString(), duration });
-    }
-  };
-
-  // ── Already submitted today ───────────────────────────────
-  if (submitted) {
-    return (
-      <div className="cl-screen cl-screen--done">
-        <div className="cl-done-card">
-          <div className="cl-done-icon">✓</div>
-          <h2 className="cl-done-title">
-            {lang === 'es' ? 'Lista del Día Completada' : 'Daily Checklist Complete'}
-          </h2>
-          <p className="cl-done-sub">
-            {lang === 'es'
-              ? 'El registro de hoy ha sido guardado y enviado.'
-              : "Today's record has been saved and sent."}
-          </p>
-          <p className="cl-done-note">
-            {lang === 'es'
-              ? 'La hora de salida ha sido registrada.'
-              : 'Clock-out has been recorded.'}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // ── Render ────────────────────────────────────────────────
   return (
-    <div className="cl-screen">
-      {/* Toast */}
+    <div style={styles.screen}>
+      {correctiveModal && (
+        <CorrectiveModal
+          item={correctiveModal.item}
+          lang={lang}
+          onSave={handleCorrectiveSave}
+          onClose={() => setCorrectiveModal(null)}
+        />
+      )}
+
       {toast && (
-        <div className={`cl-toast cl-toast--${toast.type}`}>
+        <div style={{
+          ...styles.toast,
+          background: toast.type === 'warning' ? '#C0392B' : toast.type === 'success' ? '#27AE60' : '#D4AF37',
+          color: toast.type === 'warning' ? '#fff' : '#0D0D0D',
+        }}>
           {toast.msg}
         </div>
       )}
 
-      {/* Header */}
-      <div className="cl-header">
-        <h1 className="cl-title">
-          {lang === 'es' ? 'Lista de Operaciones Diaria' : 'Daily Operations Checklist'}
+      <div style={styles.header}>
+        <h1 style={styles.headerTitle}>
+          {lang === 'es' ? 'Lista de Operaciones' : 'Daily Operations Checklist'}
         </h1>
-        <div className="cl-meta">
-          <span className="cl-meta-user">{user?.name || '—'}</span>
-          <span className="cl-meta-sep">·</span>
-          <span className="cl-meta-location">{user?.location || '—'}</span>
-          <span className="cl-meta-sep">·</span>
-          <span className="cl-meta-date">
+        <div style={styles.headerMeta}>
+          <span style={styles.metaName}>{user?.name || '—'}</span>
+          <span style={styles.metaSep}>·</span>
+          <span style={styles.metaSub}>{user?.location || '—'}</span>
+          <span style={styles.metaSep}>·</span>
+          <span style={styles.metaSub}>
             {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </span>
         </div>
-
-        {/* Progress bar */}
-        <div className="cl-progress-wrap">
-          <div className="cl-progress-bar">
-            <div className="cl-progress-fill" style={{ width: `${progressPct}%` }} />
+        <div style={styles.progressWrap}>
+          <div style={styles.progressBar}>
+            <div style={{ ...styles.progressFill, width: `${progressPct}%` }} />
           </div>
-          <span className="cl-progress-label">{progressPct}%</span>
+          <span style={styles.progressLabel}>{progressPct}%</span>
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="cl-tabs">
-        {TABS.map((tab) => {
-          const isLocked =
-            (tab.id === 'opening' && !openingUnlocked) ||
-            (tab.id === 'closing' && !closingUnlocked);
-          const isDone =
-            (tab.id === 'opening' && openingComplete) ||
-            (tab.id === 'mid' && midComplete) ||
-            (tab.id === 'closing' && closingComplete);
-
+      <div style={styles.tabs}>
+        {TABS.map(tab => {
+          const locked = (tab.id === 'opening' && !openingUnlocked) || (tab.id === 'closing' && !closingUnlocked);
+          const done = sectionSubmitted[tab.id];
+          const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              className={`cl-tab ${activeTab === tab.id ? 'cl-tab--active' : ''} ${isLocked ? 'cl-tab--locked' : ''} ${isDone ? 'cl-tab--done' : ''}`}
-              onClick={() => !isLocked && setActiveTab(tab.id)}
+              style={{ ...styles.tab, ...(active ? styles.tabActive : {}), ...(locked ? styles.tabLocked : {}), ...(done ? styles.tabDone : {}) }}
+              onClick={() => !locked && setActiveTab(tab.id)}
               type="button"
             >
-              {isLocked && <span className="cl-tab-lock">🔒</span>}
-              {isDone && !isLocked && <span className="cl-tab-check">✓</span>}
+              {done ? '✓ ' : locked ? '🔒 ' : ''}
               {lang === 'es' ? tab.labelEs : tab.label}
             </button>
           );
         })}
       </div>
 
-      {/* Time lock banners */}
-      {activeTab === 'opening' && !openingUnlocked && (
-        <div className="cl-locked-banner">
-          <span className="cl-lock-icon">🔒</span>
-          <span>
-            {lang === 'es'
-              ? `Sección de apertura disponible a las ${settings.openingUnlockTime || '5:30 AM'}`
-              : `Opening section unlocks at ${settings.openingUnlockTime || '5:30 AM'}`}
-          </span>
-        </div>
-      )}
-      {activeTab === 'closing' && !closingUnlocked && (
-        <div className="cl-locked-banner">
-          <span className="cl-lock-icon">🔒</span>
-          <span>
-            {lang === 'es'
-              ? `Sección de cierre disponible a las ${settings.closingUnlockTime || '1:00 PM'}`
-              : `Closing section unlocks at ${settings.closingUnlockTime || '1:00 PM'}`}
-          </span>
-        </div>
-      )}
+      <div style={styles.body}>
+        {activeTab === 'opening' && !openingUnlocked && <div style={styles.lockedBanner}>🔒 {lang === 'es' ? `Apertura disponible a las ${settings.timeLocks?.openingUnlockTime || '5:30 AM'}` : `Opening unlocks at ${settings.timeLocks?.openingUnlockTime || '5:30 AM'}`}</div>}
+        {activeTab === 'closing' && !closingUnlocked && <div style={styles.lockedBanner}>🔒 {lang === 'es' ? `Cierre disponible a las ${settings.timeLocks?.closingUnlockTime || '1:00 PM'}` : `Closing unlocks at ${settings.timeLocks?.closingUnlockTime || '1:00 PM'}`}</div>}
 
-      {/* Checklist items */}
-      <div className="cl-body">
-        {activeTab === 'opening' && openingUnlocked && OPENING_ITEMS.map((section) => (
-          <ChecklistSection
-            key={section.section}
-            section={section}
-            lang={lang}
-            values={values}
-            onChange={handleChange}
-            onRangeAlert={handleRangeAlert}
-          />
+        {activeTab === 'opening' && sectionSubmitted.opening && <div style={styles.submittedBanner}>✓ {lang === 'es' ? 'Apertura enviada y registrada' : 'Opening submitted and logged'}</div>}
+        {activeTab === 'mid' && sectionSubmitted.mid && <div style={styles.submittedBanner}>✓ {lang === 'es' ? 'Medio servicio enviado' : 'Mid-service submitted and logged'}</div>}
+        {activeTab === 'closing' && sectionSubmitted.closing && <div style={styles.submittedBanner}>✓ {lang === 'es' ? 'Cierre enviado — turno completado' : 'Closing submitted — shift complete'}</div>}
+
+        {activeTab === 'opening' && openingUnlocked && !sectionSubmitted.opening && OPENING_ITEMS.map(group => (
+          <SectionBlock key={group.section} group={group} lang={lang} values={values}
+            onCheck={(id, val) => handleCheck('opening', id, val)}
+            onRangeOk={item => handleRangeOk('opening', item)}
+            onRangeFlag={item => handleRangeFlag('opening', item)} />
         ))}
-        {activeTab === 'mid' && MID_SERVICE_ITEMS.map((section) => (
-          <ChecklistSection
-            key={section.section}
-            section={section}
-            lang={lang}
-            values={values}
-            onChange={handleChange}
-            onRangeAlert={handleRangeAlert}
-          />
+
+        {activeTab === 'mid' && !sectionSubmitted.mid && MID_SERVICE_ITEMS.map(group => (
+          <SectionBlock key={group.section} group={group} lang={lang} values={values}
+            onCheck={(id, val) => handleCheck('mid', id, val)}
+            onRangeOk={item => handleRangeOk('mid', item)}
+            onRangeFlag={item => handleRangeFlag('mid', item)} />
         ))}
-        {activeTab === 'closing' && closingUnlocked && CLOSING_ITEMS.map((section) => (
-          <ChecklistSection
-            key={section.section}
-            section={section}
-            lang={lang}
-            values={values}
-            onChange={handleChange}
-            onRangeAlert={handleRangeAlert}
-          />
+
+        {activeTab === 'closing' && closingUnlocked && !sectionSubmitted.closing && CLOSING_ITEMS.map(group => (
+          <SectionBlock key={group.section} group={group} lang={lang} values={values}
+            onCheck={(id, val) => handleCheck('closing', id, val)}
+            onRangeOk={item => handleRangeOk('closing', item)}
+            onRangeFlag={item => handleRangeFlag('closing', item)} />
         ))}
+
+        {activeTab === 'opening' && openingUnlocked && !sectionSubmitted.opening && (
+          <div style={styles.submitWrap}>
+            {!openingComplete && <p style={styles.submitNote}>{lang === 'es' ? 'Completa todos los elementos para enviar.' : 'Complete all items to submit.'}</p>}
+            <button
+              style={{ ...styles.submitBtn, ...(openingComplete ? styles.submitBtnReady : styles.submitBtnDisabled) }}
+              disabled={!openingComplete || submitting === 'opening'}
+              onClick={() => handleSectionSubmit('opening')} type="button"
+            >
+              {submitting === 'opening' ? (lang === 'es' ? 'Enviando...' : 'Submitting...') : (lang === 'es' ? 'Enviar Apertura' : 'Submit Opening Checklist')}
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'mid' && !sectionSubmitted.mid && (
+          <div style={styles.submitWrap}>
+            {!midComplete && <p style={styles.submitNote}>{lang === 'es' ? 'Completa todos los elementos para enviar.' : 'Complete all items to submit.'}</p>}
+            <button
+              style={{ ...styles.submitBtn, ...(midComplete ? styles.submitBtnReady : styles.submitBtnDisabled) }}
+              disabled={!midComplete || submitting === 'mid'}
+              onClick={() => handleSectionSubmit('mid')} type="button"
+            >
+              {submitting === 'mid' ? (lang === 'es' ? 'Enviando...' : 'Submitting...') : (lang === 'es' ? 'Enviar Medio Servicio' : 'Submit Mid-Service Checklist')}
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'closing' && closingUnlocked && !sectionSubmitted.closing && (
+          <div style={styles.submitWrap}>
+            {!closingComplete && <p style={styles.submitNote}>{lang === 'es' ? 'Completa todos los elementos para enviar.' : 'Complete all items to submit.'}</p>}
+            <button
+              style={{ ...styles.submitBtn, ...(closingComplete ? styles.submitBtnReady : styles.submitBtnDisabled) }}
+              disabled={!closingComplete || submitting === 'closing'}
+              onClick={() => handleSectionSubmit('closing')} type="button"
+            >
+              {submitting === 'closing' ? (lang === 'es' ? 'Enviando...' : 'Submitting...') : (lang === 'es' ? 'Enviar Cierre' : 'Submit Closing Checklist')}
+            </button>
+          </div>
+        )}
+
+        <div style={{ height: 40 }} />
       </div>
-
-      {/* Submit — only visible on closing tab when closing is unlocked */}
-      {activeTab === 'closing' && closingUnlocked && (
-        <div className="cl-submit-wrap">
-          {!allComplete && (
-            <p className="cl-submit-note">
-              {lang === 'es'
-                ? 'Completa todas las secciones para enviar.'
-                : 'Complete all three sections to submit.'}
-            </p>
-          )}
-          <button
-            className={`cl-submit-btn ${allComplete ? 'cl-submit-btn--ready' : 'cl-submit-btn--disabled'}`}
-            disabled={!allComplete || submitting}
-            onClick={handleSubmit}
-            type="button"
-          >
-            {submitting
-              ? (lang === 'es' ? 'Enviando...' : 'Submitting...')
-              : (lang === 'es' ? 'Enviar Lista del Día + Registrar Salida' : 'Submit Daily Log + Clock Out')}
-          </button>
-        </div>
-      )}
     </div>
   );
+};
+
+// ── Styles ────────────────────────────────────────────────
+const C = {
+  black: '#0D0D0D', dark: '#1A1A1A', mid: '#2A2A2A',
+  gold: '#D4AF37', cream: '#F5F0E8', gray: '#9A9080',
+  border: 'rgba(212,175,55,0.18)', borderStrong: 'rgba(212,175,55,0.4)',
+  green: '#27AE60', greenBg: 'rgba(39,174,96,0.12)',
+  red: '#C0392B', redBg: 'rgba(192,57,43,0.12)',
+};
+
+const styles = {
+  screen: { display: 'flex', flexDirection: 'column', minHeight: '100vh', background: C.black, paddingBottom: 80 },
+  header: { padding: '20px 20px 14px', background: C.dark, borderBottom: `1px solid ${C.border}` },
+  headerTitle: { fontFamily: 'Georgia, serif', fontSize: 19, fontWeight: 'normal', color: C.gold, letterSpacing: '0.04em', textTransform: 'uppercase', margin: '0 0 6px' },
+  headerMeta: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 },
+  metaName: { fontSize: 13, color: C.cream, fontWeight: 500 },
+  metaSep: { fontSize: 10, color: C.gray },
+  metaSub: { fontSize: 12, color: C.gray },
+  progressWrap: { display: 'flex', alignItems: 'center', gap: 10 },
+  progressBar: { flex: 1, height: 3, background: C.mid, borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: '100%', background: C.gold, borderRadius: 2, transition: 'width 0.4s ease' },
+  progressLabel: { fontSize: 11, color: C.gold, minWidth: 30, textAlign: 'right', fontFamily: 'Georgia, serif' },
+  tabs: { display: 'flex', background: C.dark, borderBottom: `1px solid ${C.border}`, padding: '0 16px', gap: 2 },
+  tab: { flex: 1, padding: '11px 6px', background: 'none', border: 'none', borderBottom: '2px solid transparent', color: C.gray, fontSize: 12, fontFamily: 'Georgia, serif', letterSpacing: '0.04em', textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s' },
+  tabActive: { color: C.gold, borderBottomColor: C.gold },
+  tabDone: { color: C.green, borderBottomColor: C.green },
+  tabLocked: { color: '#444', cursor: 'not-allowed' },
+  body: { flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 },
+  lockedBanner: { background: C.mid, border: `1px solid ${C.border}`, borderRadius: 8, padding: '14px 16px', color: C.gray, fontSize: 14, fontFamily: 'Georgia, serif' },
+  submittedBanner: { background: C.greenBg, border: `1px solid ${C.green}`, borderRadius: 8, padding: '14px 16px', color: C.green, fontSize: 14, fontFamily: 'Georgia, serif' },
+  sectionBlock: { border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' },
+  sectionHeader: { background: C.mid, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  sectionTitle: { fontFamily: 'Georgia, serif', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.gold },
+  sectionNote: { fontSize: 11, color: C.gray },
+  item: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: C.dark, borderTop: `1px solid ${C.border}`, gap: 12, transition: 'background 0.15s' },
+  itemFlagged: { background: C.redBg, borderLeft: `3px solid ${C.red}` },
+  itemOk: { background: 'rgba(39,174,96,0.06)' },
+  itemLeft: { flex: 1, display: 'flex', flexDirection: 'column', gap: 3 },
+  itemLabel: { fontSize: 14, color: C.cream, lineHeight: 1.3 },
+  itemRange: { fontSize: 12, color: C.gold, fontFamily: 'Georgia, serif' },
+  itemNote: { fontSize: 11, color: C.gray },
+  rangeToggle: { display: 'flex', gap: 8, flexShrink: 0 },
+  rangeBtn: { width: 44, height: 44, borderRadius: 8, border: 'none', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', fontWeight: 700 },
+  rangeBtnOk: { background: C.green, color: '#fff' },
+  rangeBtnOkInactive: { background: C.mid, color: '#555', border: `1px solid ${C.border}` },
+  rangeBtnFlag: { background: C.red, color: '#fff' },
+  rangeBtnFlagInactive: { background: C.mid, color: '#555', border: `1px solid ${C.border}` },
+  checkBtn: { width: 44, height: 44, borderRadius: 8, border: 'none', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' },
+  checkBtnOn: { background: C.greenBg, color: C.green, border: `1px solid ${C.green}` },
+  checkBtnOff: { background: C.mid, color: '#555', border: `1px solid ${C.border}` },
+  textInput: { background: C.mid, border: `1px solid ${C.border}`, borderRadius: 8, color: C.cream, fontSize: 13, padding: '10px 12px', outline: 'none', width: 160 },
+  submitWrap: { padding: '8px 0 4px' },
+  submitNote: { textAlign: 'center', fontSize: 12, color: C.gray, fontFamily: 'Georgia, serif', margin: '0 0 8px' },
+  submitBtn: { width: '100%', padding: 16, border: 'none', borderRadius: 10, fontFamily: 'Georgia, serif', fontSize: 15, letterSpacing: '0.05em', textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s' },
+  submitBtnReady: { background: C.gold, color: C.black },
+  submitBtnDisabled: { background: C.mid, color: '#555', cursor: 'not-allowed' },
+  toast: { position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', padding: '11px 22px', borderRadius: 8, fontSize: 14, fontFamily: 'Georgia, serif', zIndex: 999, whiteSpace: 'nowrap', pointerEvents: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' },
+  modal: { background: C.dark, borderTop: `1px solid ${C.borderStrong}`, borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 580, padding: '24px 20px 40px' },
+  modalHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 },
+  modalWarning: { fontSize: 22, color: C.red },
+  modalTitle: { fontFamily: 'Georgia, serif', fontSize: 18, color: C.red, letterSpacing: '0.03em' },
+  modalItem: { fontSize: 15, color: C.cream, margin: '0 0 6px' },
+  modalRange: { fontSize: 13, color: C.gray, margin: '0 0 16px' },
+  modalPrompt: { fontSize: 13, color: C.gold, fontFamily: 'Georgia, serif', margin: '0 0 8px' },
+  modalTextarea: { width: '100%', boxSizing: 'border-box', background: C.mid, border: `1px solid ${C.borderStrong}`, borderRadius: 8, color: C.cream, fontSize: 14, padding: '12px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
+  modalBtns: { display: 'flex', gap: 10, marginTop: 16 },
+  modalBtnGhost: { flex: 1, padding: '13px', background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, color: C.cream, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' },
+  modalBtnGold: { flex: 1, padding: '13px', background: C.gold, border: 'none', borderRadius: 8, color: C.black, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Georgia, serif', letterSpacing: '0.04em' },
 };
 
 export default DailyChecklist;

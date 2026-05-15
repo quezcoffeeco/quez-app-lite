@@ -1,6 +1,14 @@
+// ============================================================
+// QUEZ APP LITE — Entry Point
+// ============================================================
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './index.css';
 import App from './App';
+import { applyDefaultsIfNeeded } from './data/defaults';
+
+// Apply seed data on first launch
+applyDefaultsIfNeeded();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

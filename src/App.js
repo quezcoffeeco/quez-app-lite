@@ -1,70 +1,154 @@
+// ============================================================
+// QUEZ APP LITE — App.js
+// Built to match existing AppContext navigation system.
+// Session 5: adds DailyChecklist (mid/closing), 
+// ============================================================
+ 
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
-import LoginScreen from './screens/LoginScreen';
-import SettingsScreen from './screens/SettingsScreen';
 import './App.css';
-import DailyChecklistScreen from './screens/DailyChecklistScreen';
-function PlaceholderScreen({ name }) {
-const { session } = useApp();
-return (
-<div style={{minHeight:'100vh',background:'var(--color-black)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:20,padding:24}}>
-<div style={{background:'var(--color-dark-gray)',border:'1px solid rgba(212,175,55,0.2)',borderRadius:16,padding:'32px 28px',maxWidth:400,width:'100%',textAlign:'center'}}>
-<p style={{color:'var(--color-gold)',fontFamily:'Georgia,serif',fontSize:20,margin:'0 0 8px'}}>{name}</p>
-<p style={{color:'var(--color-cream)',opacity:0.5,fontSize:13,margin:'0 0 24px'}}>Coming in a future session</p>
-<p style={{color:'var(--color-cream)',opacity:0.4,fontSize:12,margin:0}}>Logged in as: {session && session.name}</p>
-</div>
-</div>
-);
+import './styles/checklist.css';
+ 
+// Screens
+import LoginScreen from './screens/LoginScreen';
+import DailyChecklist from './screens/DailyChecklist';
+import SettingsScreen from './screens/SettingsScreen';
+ 
+// ── Nav tab definitions per role ──────────────────────────
+function getNavTabs(role, language) {
+  const lang = language || 'en';
+  const tabs = [];
+ 
+  if (['owner', 'manager', 'leadBarista', 'barista'].includes(role)) {
+    tabs.push({
+      screen: 'dailyChecklist',
+      icon: '☑',
+      label: lang === 'es' ? 'Lista' : 'Checklist',
+    });
+  }
+ 
+
+ 
+  if (role === 'owner') {
+    tabs.push({
+      screen: 'ownerDashboard',
+      icon: '◉',
+      label: lang === 'es' ? 'Panel' : 'Dashboard',
+    });
+    tabs.push({
+      screen: 'settings',
+      icon: '⚙',
+      label: lang === 'es' ? 'Ajustes' : 'Settings',
+    });
+  }
+ 
+  return tabs;
 }
-const NAV_ITEMS = {
-owner:[{screen:'ownerDashboard',label:'Dashboard'},{screen:'dailyChecklist',label:'Checklist'},{screen:'orderEntry',label:'Orders'},{screen:'recipes',label:'Recipes'},{screen:'scheduling',label:'Schedule'},{screen:'settings',label:'Settings'}],
-manager:[{screen:'dailyChecklist',label:'Checklist'},{screen:'orderEntry',label:'Orders'},{screen:'recipes',label:'Recipes'},{screen:'scheduling',label:'Schedule'},{screen:'training',label:'Training'}],
-leadBarista:[{screen:'dailyChecklist',label:'Checklist'},{screen:'orderEntry',label:'Orders'},{screen:'recipes',label:'Recipes'},{screen:'training',label:'Training'}],
-barista:[{screen:'dailyChecklist',label:'Checklist'},{screen:'orderEntry',label:'Orders'},{screen:'recipes',label:'Recipes'}],
-trainee:[{screen:'training',label:'Training'},{screen:'recipes',label:'Recipes'}],
-};
-function BottomNav() {
-const { session, currentScreen, navigate, logout } = useApp();
-if (!session) return null;
-const items = NAV_ITEMS[session.role] || [];
-return (
-<nav className="bottom-nav">
-{items.map(function(item) {
-return (
-<button key={item.screen} className={'bottom-nav-item ' + (currentScreen === item.screen ? 'active' : '')} onClick={function(){ navigate(item.screen); }}>
-<span className="bottom-nav-label">{item.label}</span>
-</button>
-);
-})}
-<button className="bottom-nav-item bottom-nav-logout" onClick={logout}>Out</button>
-</nav>
-);
+ 
+// ── Inner app — reads from AppContext ─────────────────────
+function AppInner() {
+  const { session, currentScreen, language, navigate, logout, isReady } = useApp();
+ 
+  if (!isReady) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', background: '#0D0D0D',
+      }}>
+        <div style={{ color: '#D4AF37', fontFamily: 'Georgia, serif', fontSize: 18 }}>
+          Quez Coffee Co.
+        </div>
+      </div>
+    );
+  }
+ 
+  // Not logged in
+  if (currentScreen === 'login' || !session) {
+    return <LoginScreen />;
+  }
+ 
+  const navTabs = getNavTabs(session.role, language);
+ 
+  // Clock-out callback passed to DailyChecklist
+  function handleClockOut() {
+    // Stays on checklist screen showing "done" state.
+    // Full logout via Settings or nav.
+  }
+ 
+  return (
+    <div className="app">
+      {/* Screen content */}
+      <div className="app-content">
+        {currentScreen === 'dailyChecklist' && (
+          <DailyChecklist onClockOut={handleClockOut} />
+       
+        )}
+        {currentScreen === 'settings' && (
+          <SettingsScreen />
+        )}
+        {currentScreen === 'ownerDashboard' && (
+          // Owner Dashboard coming in a future session
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', height: '100%', gap: 16,
+            background: '#0D0D0D', color: '#555',
+          }}>
+            <div style={{ fontSize: 40 }}>◉</div>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#D4AF37' }}>
+              Owner Dashboard
+            </div>
+            <div style={{ fontSize: 13 }}>Coming in a future session</div>
+          </div>
+        )}
+        {currentScreen === 'training' && (
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', height: '100%', gap: 16,
+            background: '#0D0D0D', color: '#555',
+          }}>
+            <div style={{ fontSize: 40 }}>🎓</div>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#D4AF37' }}>
+              Training Portal
+            </div>
+            <div style={{ fontSize: 13 }}>Coming in a future session</div>
+          </div>
+        )}
+      </div>
+ 
+      {/* Bottom navigation */}
+      <nav className="app-nav">
+        {navTabs.map((tab) => (
+          <button
+            key={tab.screen}
+            className={`app-nav-tab ${currentScreen === tab.screen ? 'app-nav-tab--active' : ''}`}
+            onClick={() => navigate(tab.screen)}
+            type="button"
+          >
+            <span className="app-nav-icon">{tab.icon}</span>
+            <span className="app-nav-label">{tab.label}</span>
+          </button>
+        ))}
+ 
+        {/* Logout always visible */}
+        <button
+          className="app-nav-tab"
+          onClick={logout}
+          type="button"
+        >
+          <span className="app-nav-icon">⏏</span>
+          <span className="app-nav-label">{language === 'es' ? 'Salir' : 'Logout'}</span>
+        </button>
+      </nav>
+    </div>
+  );
 }
-function AppRouter() {
-const { session, currentScreen, language } = useApp();
-if (!session) return <LoginScreen />;
-const screens = {
-ownerDashboard:<PlaceholderScreen name="Owner Dashboard" />,
-dailyChecklist:<DailyChecklistScreen currentUser={session} language={language} />,
-orderEntry:<PlaceholderScreen name="Order Entry" />,
-recipes:<PlaceholderScreen name="Recipe Viewer" />,
-scheduling:<PlaceholderScreen name="Scheduling" />,
-settings:<SettingsScreen />,
-training:<PlaceholderScreen name="Training Portal" />,
-};
-return (
-<div className="app-shell">
-<main className="app-main">
-{screens[currentScreen] || <PlaceholderScreen name={currentScreen} />}
-</main>
-<BottomNav />
-</div>
-);
-}
+ 
+// ── Root export — wraps everything in AppProvider ─────────
 export default function App() {
-return (
-<AppProvider>
-<AppRouter />
-</AppProvider>
-);
+  return (
+    <AppProvider>
+      <AppInner />
+    </AppProvider>
+  );
 }
+ 

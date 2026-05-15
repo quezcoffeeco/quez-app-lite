@@ -42,3 +42,31 @@
 .ls-success-role { font-size:14px; color:var(--color-gold); letter-spacing:2px; text-transform:uppercase; margin:0; text-align:center; }
 .ls-footer { margin-top:28px; font-size:11px; color:var(--color-cream); opacity:0.25; letter-spacing:1px; text-align:center; }
 @keyframes spin { to { transform:rotate(360deg); } }
+/* ── ADD THESE LINES TO THE BOTTOM OF LoginScreen.css ── */
+ 
+.ls-clockin-time {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(212, 175, 55, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 4px;
+}
+ 
+.ls-clockin-label {
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #9A9080;
+  font-family: Georgia, serif;
+}
+ 
+.ls-clockin-value {
+  font-size: 20px;
+  font-family: Georgia, serif;
+  color: #D4AF37;
+  letter-spacing: 0.04em;
+}
+ 
