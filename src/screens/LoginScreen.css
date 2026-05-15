@@ -22,8 +22,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  /* Top padding clears the iPhone camera island; bottom padding clears the home indicator. */
-  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(40px + env(safe-area-inset-bottom, 0px));
+  /* Top padding clears the iPhone camera island plus a generous buffer so the
+     seal never touches the cover bar. Bottom padding clears the home indicator. */
+  padding: calc(48px + env(safe-area-inset-top, 0px)) 20px calc(40px + env(safe-area-inset-bottom, 0px));
   font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 

@@ -26,7 +26,7 @@ body::before {
   left: 0;
   right: 0;
   height: env(safe-area-inset-top, 0px);
-  background: #0D0D0D;
+  background: #000;
   z-index: 100;
   pointer-events: none;
 }
