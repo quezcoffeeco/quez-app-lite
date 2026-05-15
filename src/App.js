@@ -1,9 +1,9 @@
 // ============================================================
 // QUEZ APP LITE — App.js
-// Updated: Session 6 — Periodic Checklists + Owner Dashboard
+// Updated: Session 7 — Training Portal Phase 1 + Quiz
 // Logout handled entirely by AppContext — no duplicate popup here
 // ============================================================
- 
+
 import React, { useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import './App.css';
@@ -14,7 +14,8 @@ import OwnerDashboard from './screens/OwnerDashboard';
 import LoginScreen from './screens/LoginScreen';
 import DailyChecklist from './screens/DailyChecklist';
 import SettingsScreen from './screens/SettingsScreen';
- 
+import TrainingPortal from './screens/TrainingPortal';
+
 import {
   autoCloseOrphanedPunches,
   checkAndSendIncompleteAlert,
@@ -26,8 +27,10 @@ import {
   isQuarterlySubmittedThisQuarter,
   isAnnualChecklistDue,
   isAnnualSubmittedThisYear,
+  getEmployees,
+  applyTrainingBypassIfEnabled,
 } from './utils/storage';
- 
+
 // ── Periodic checklist badge helper ──────────────────────────
 function hasPeriodicChecklistDue(role) {
   const rank = { owner: 4, manager: 3, lead_barista: 2, leadBarista: 2, barista: 1, trainee: 0 };
@@ -38,12 +41,12 @@ function hasPeriodicChecklistDue(role) {
   if (r >= 3 && isAnnualChecklistDue() && !isAnnualSubmittedThisYear()) return true;
   return false;
 }
- 
+
 // ── Nav tabs ──────────────────────────────────────────────
 function getNavTabs(role, language) {
   const lang = language || 'en';
   const tabs = [];
- 
+
   if (['owner', 'manager', 'lead_barista', 'leadBarista', 'barista'].includes(role)) {
     tabs.push({
       screen: 'dailyChecklist',
@@ -52,7 +55,7 @@ function getNavTabs(role, language) {
       badge: false,
     });
   }
- 
+
   if (['owner', 'manager', 'lead_barista', 'leadBarista'].includes(role)) {
     tabs.push({
       screen: 'periodicChecklists',
@@ -61,7 +64,15 @@ function getNavTabs(role, language) {
       badge: hasPeriodicChecklistDue(role),
     });
   }
- 
+
+  // Training tab: all roles get training access
+  tabs.push({
+    screen: 'training',
+    icon: '🎓',
+    label: lang === 'es' ? 'Entrena' : 'Training',
+    badge: false,
+  });
+
   if (role === 'owner') {
     tabs.push({
       screen: 'ownerDashboard',
@@ -76,21 +87,27 @@ function getNavTabs(role, language) {
       badge: false,
     });
   }
- 
+
   return tabs;
 }
- 
+
 // ── Inner app ─────────────────────────────────────────────
 function AppInner() {
   const { session, currentScreen, language, navigate, logout, isReady } = useApp();
- 
+
   useEffect(() => {
     if (isReady) {
       autoCloseOrphanedPunches();
       checkAndSendIncompleteAlert();
+      // Apply training bypass for current session user on app load
+      if (session) {
+        const employees = getEmployees();
+        const emp = employees.find(e => e.id === session.id);
+        if (emp) applyTrainingBypassIfEnabled(emp);
+      }
     }
-  }, [isReady]);
- 
+  }, [isReady, session]);
+
   if (!isReady) {
     return (
       <div style={{
@@ -103,13 +120,13 @@ function AppInner() {
       </div>
     );
   }
- 
+
   if (currentScreen === 'login' || !session) {
     return <LoginScreen />;
   }
- 
+
   const navTabs = getNavTabs(session.role, language);
- 
+
   return (
     <div className="app">
       <div className="app-content">
@@ -117,21 +134,9 @@ function AppInner() {
         {currentScreen === 'periodicChecklists'  && <PeriodicChecklists />}
         {currentScreen === 'ownerDashboard'      && <OwnerDashboard />}
         {currentScreen === 'settings'            && <SettingsScreen />}
-        {currentScreen === 'training' && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', height: '100%', gap: 16,
-            background: '#0D0D0D', color: '#555',
-          }}>
-            <div style={{ fontSize: 40 }}>🎓</div>
-            <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#D4AF37' }}>
-              Training Portal
-            </div>
-            <div style={{ fontSize: 13 }}>Coming in Session 7</div>
-          </div>
-        )}
+        {currentScreen === 'training'            && <TrainingPortal />}
       </div>
- 
+
       <nav className="app-nav">
         {navTabs.map((tab) => (
           <button
@@ -158,7 +163,7 @@ function AppInner() {
             <span className="app-nav-label">{tab.label}</span>
           </button>
         ))}
- 
+
         {/* Logout — triggers AppContext popup, no local state needed */}
         <button className="app-nav-tab" onClick={logout} type="button">
           <span className="app-nav-icon">⏏</span>
@@ -168,7 +173,7 @@ function AppInner() {
     </div>
   );
 }
- 
+
 export default function App() {
   return (
     <AppProvider>

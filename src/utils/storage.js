@@ -1,6 +1,6 @@
 // ============================================================
 // QUEZ APP LITE — Storage Utility (Complete / Unified)
-// Sessions 1–6. All function names preserved.
+// Sessions 1–7. All function names preserved.
 // DO NOT replace without merging all exports.
 // ============================================================
  
@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_EMPLOYEES = [
   {
     id: 'emp_ryan',
-    name: 'Ryan Rodriquez',
+    name: 'Ryan Rodriguez',
     role: 'owner',
     pin: '1943',
     active: true,
@@ -461,4 +461,117 @@ export const savePeriodicChecklistRecord = (record) => {
  
 export const getPeriodicChecklistRecords = () => {
   return JSON.parse(localStorage.getItem('quez_periodic_checklist_records') || '[]');
+};
+
+// ============================================================
+// SESSION 7 — Training Portal Functions
+// ============================================================
+
+const TRAINING_KEY_PREFIX = 'quez_training_';
+const QUIZ_LOCKOUT_PREFIX  = 'quez_quiz_lockout_';
+const QUIZ_LOCKOUT_HOURS   = 24;
+
+// ── Training record helpers ───────────────────────────────
+
+export const getTrainingRecord = (employeeId) => {
+  const raw = localStorage.getItem(TRAINING_KEY_PREFIX + employeeId);
+  return raw ? JSON.parse(raw) : {
+    phase1: { passed: false, date: null },
+    phase2: { passed: false, date: null, trainerName: null },
+    phase3: { passed: false, date: null, trainerName: null },
+  };
+};
+
+export const saveTrainingRecord = (employeeId, record) => {
+  localStorage.setItem(TRAINING_KEY_PREFIX + employeeId, JSON.stringify(record));
+};
+
+export const markPhase1Complete = (employeeId) => {
+  const record = getTrainingRecord(employeeId);
+  record.phase1 = { passed: true, date: new Date().toISOString() };
+  saveTrainingRecord(employeeId, record);
+};
+
+export const markPhase2Complete = (employeeId, trainerName) => {
+  const record = getTrainingRecord(employeeId);
+  record.phase2 = { passed: true, date: new Date().toISOString(), trainerName };
+  saveTrainingRecord(employeeId, record);
+};
+
+export const markPhase3Complete = (employeeId, trainerName) => {
+  const record = getTrainingRecord(employeeId);
+  record.phase3 = { passed: true, date: new Date().toISOString(), trainerName };
+  saveTrainingRecord(employeeId, record);
+};
+
+export const isPhase1Complete = (employeeId) =>
+  getTrainingRecord(employeeId).phase1.passed === true;
+
+export const isPhase2Complete = (employeeId) =>
+  getTrainingRecord(employeeId).phase2.passed === true;
+
+export const isPhase3Complete = (employeeId) =>
+  getTrainingRecord(employeeId).phase3.passed === true;
+
+// ── Quiz lockout helpers ──────────────────────────────────
+
+export const setQuizLockout = (employeeId) => {
+  localStorage.setItem(QUIZ_LOCKOUT_PREFIX + employeeId, JSON.stringify({
+    lockedAt: new Date().toISOString(),
+  }));
+};
+
+export const clearQuizLockout = (employeeId) => {
+  localStorage.removeItem(QUIZ_LOCKOUT_PREFIX + employeeId);
+};
+
+export const getQuizLockoutInfo = (employeeId) => {
+  const raw = localStorage.getItem(QUIZ_LOCKOUT_PREFIX + employeeId);
+  if (!raw) return { isLocked: false, remainingHours: 0, remainingMinutes: 0 };
+  const { lockedAt } = JSON.parse(raw);
+  const elapsed = (Date.now() - new Date(lockedAt).getTime()) / 1000 / 3600;
+  if (elapsed >= QUIZ_LOCKOUT_HOURS) {
+    clearQuizLockout(employeeId);
+    return { isLocked: false, remainingHours: 0, remainingMinutes: 0 };
+  }
+  const remaining = QUIZ_LOCKOUT_HOURS - elapsed;
+  return {
+    isLocked: true,
+    remainingHours: Math.floor(remaining),
+    remainingMinutes: Math.floor((remaining % 1) * 60),
+  };
+};
+
+// ── Training bypass — applies to employee on login / app load ─
+
+export const applyTrainingBypassIfEnabled = (employee) => {
+  if (!employee?.trainingBypass) return;
+  const record = getTrainingRecord(employee.id);
+  let changed = false;
+  if (!record.phase1.passed) {
+    record.phase1 = { passed: true, date: new Date().toISOString(), bypassed: true };
+    changed = true;
+  }
+  if (!record.phase2.passed) {
+    record.phase2 = { passed: true, date: new Date().toISOString(), trainerName: 'Owner Bypass', bypassed: true };
+    changed = true;
+  }
+  if (!record.phase3.passed) {
+    record.phase3 = { passed: true, date: new Date().toISOString(), trainerName: 'Owner Bypass', bypassed: true };
+    changed = true;
+  }
+  if (changed) saveTrainingRecord(employee.id, record);
+};
+
+// ── All training records (for owner approval screen S8) ───
+export const getAllTrainingRecords = () => {
+  const results = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(TRAINING_KEY_PREFIX)) {
+      const employeeId = key.replace(TRAINING_KEY_PREFIX, '');
+      results.push({ employeeId, record: JSON.parse(localStorage.getItem(key)) });
+    }
+  }
+  return results;
 };
