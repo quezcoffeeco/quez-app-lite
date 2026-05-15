@@ -15,6 +15,22 @@ html, body, #root {
 
 * { box-sizing: border-box; }
 
+/* iPhone camera island / Dynamic Island / notch cover.
+   Without this, scrolled content visibly passes BEHIND the island —
+   padding-top alone doesn't help because it scrolls with the content.
+   Fixed bar at top covers whatever scrolls past. */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: #0D0D0D;
+  z-index: 100;
+  pointer-events: none;
+}
+
 /* App container — full viewport */
 .app {
   min-height: 100vh;
