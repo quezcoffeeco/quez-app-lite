@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { PHASES, CRITICAL_GATES, CATEGORY_COLORS, TOTAL_TASKS } from '../data/preLaunchTimeline';
+import { PHASES, CRITICAL_GATES, CATEGORY_COLORS } from '../data/preLaunchTimeline';
 import {
   getPreLaunchProgress,
   setPreLaunchTaskDone,
@@ -80,13 +80,6 @@ const STATUS_STYLES = {
   soon:    { color: '#D4AF37', background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.4)' },
   far:     { color: '#888',    background: 'transparent',           border: '1px solid #333' },
 };
-
-function fmtCompletedDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 export default function PreLaunchTimeline() {
   const { currentUser } = useApp();
