@@ -23,7 +23,6 @@ import {
   getTodayDrinkTally,
   getReportRecipients,
   getStorageHealth,
-  isEmailJsConfigured,
   getHandoffNotes,
   getPendingSwapCount,
   getLowStockItems,
@@ -573,9 +572,10 @@ export default function OwnerDashboard() {
 
       {/* ── Storage health banner — only shows when there's something to act on ── */}
       {storageHealth && (() => {
+        // EmailJS-not-configured row intentionally suppressed — the owner has
+        // mentally noted the requirement and doesn't want repeated reminders.
         const lastBackup = storageHealth.lastBackupAt ? new Date(storageHealth.lastBackupAt) : null;
         const daysSince = lastBackup ? Math.floor((Date.now() - lastBackup.getTime()) / 86400000) : null;
-        const emailReady     = isEmailJsConfigured();
         const noBackup       = !lastBackup;
         const staleBackup    = daysSince !== null && daysSince >= 7;
         const notPersistent  = !storageHealth.isPersistent;
@@ -583,7 +583,7 @@ export default function OwnerDashboard() {
         const autoStatus     = storageHealth.autoBackupStatus;
         const autoTooBig     = autoStatus?.state === 'too_big';
         const autoFailed     = autoStatus?.state === 'failed';
-        const hasIssue = !emailReady || noBackup || staleBackup || notPersistent || isNoisyStorage || autoTooBig || autoFailed;
+        const hasIssue = noBackup || staleBackup || notPersistent || isNoisyStorage || autoTooBig || autoFailed;
         if (!hasIssue) return null;
         return (
           <div style={{ margin: '8px 16px 0', padding: '10px 13px', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.40)', borderRadius: 10 }}>
@@ -591,15 +591,8 @@ export default function OwnerDashboard() {
               💾 Data Health
             </div>
             <div style={{ fontSize: 12, color: '#ddd', lineHeight: 1.5 }}>
-              {!emailReady && (
-                <div style={{ color: '#FFB3B3' }}>
-                  · {isSpanish
-                      ? 'EmailJS no está configurado — los respaldos automáticos no se pueden enviar. Configura en Ajustes → Email.'
-                      : 'EmailJS not configured — auto-backups can\'t send. Set up in Settings → Email Configuration.'}
-                </div>
-              )}
-              {emailReady && noBackup && <div>· {isSpanish ? 'No has hecho un respaldo todavía.' : "You haven't exported a backup yet."}</div>}
-              {emailReady && !noBackup && staleBackup && <div>· {isSpanish ? `Último respaldo hace ${daysSince} días.` : `Last backup was ${daysSince} days ago.`}</div>}
+              {noBackup && <div>· {isSpanish ? 'No has hecho un respaldo todavía.' : "You haven't exported a backup yet."}</div>}
+              {!noBackup && staleBackup && <div>· {isSpanish ? `Último respaldo hace ${daysSince} días.` : `Last backup was ${daysSince} days ago.`}</div>}
               {autoTooBig && (
                 <div style={{ color: '#FFB3B3' }}>
                   · {isSpanish
@@ -621,9 +614,7 @@ export default function OwnerDashboard() {
               style={{ marginTop: 8, background: 'transparent', border: '1px solid #D4AF37', color: '#D4AF37', borderRadius: 7, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
               onClick={() => navigate('settings')}
             >
-              {!emailReady
-                ? (isSpanish ? 'Abrir Email' : 'Open Email Settings')
-                : (isSpanish ? 'Abrir Datos y Respaldo' : 'Open Data & Backup')}
+              {isSpanish ? 'Abrir Datos y Respaldo' : 'Open Data & Backup'}
             </button>
           </div>
         );
