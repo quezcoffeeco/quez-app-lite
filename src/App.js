@@ -24,6 +24,7 @@ import Schedule from './screens/Schedule';
 import Reports from './screens/Reports';
 import Trainees from './screens/Trainees';
 import AuditLog from './screens/AuditLog';
+import PreLaunchTimeline from './screens/PreLaunchTimeline';
 import Timesheet from './screens/Timesheet';
 import WasteLog from './screens/WasteLog';
 import Inventory from './screens/Inventory';
@@ -230,6 +231,7 @@ function AppInner() {
         {currentScreen === 'reports'             && <Reports />}
         {currentScreen === 'trainees'            && <Trainees />}
         {currentScreen === 'auditLog'            && <AuditLog />}
+        {currentScreen === 'preLaunchTimeline'   && <PreLaunchTimeline />}
         {currentScreen === 'timesheet'           && <Timesheet />}
         {currentScreen === 'wasteLog'            && <WasteLog />}
         {currentScreen === 'inventory'           && <Inventory />}

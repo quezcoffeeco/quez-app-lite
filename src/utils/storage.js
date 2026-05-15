@@ -2019,6 +2019,47 @@ export function getLaborCostRange(daysBack = 7) {
   return { totalCost: Math.round(totalCost * 100) / 100, byEmployee: ranked };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PRE-LAUNCH TIMELINE — owner-only long-horizon checklist
+// Progress is keyed by task id: { done, completedAt, notes }
+// Lives at quez_pre_launch_progress so it rides in every JSON backup.
+// ─────────────────────────────────────────────────────────────────────────────
+const PRELAUNCH_KEY = 'quez_pre_launch_progress';
+
+export function getPreLaunchProgress() {
+  const raw = localStorage.getItem(PRELAUNCH_KEY);
+  if (!raw) return {};
+  try { return JSON.parse(raw) || {}; } catch { return {}; }
+}
+
+function savePreLaunchProgress(map) {
+  try { localStorage.setItem(PRELAUNCH_KEY, JSON.stringify(map || {})); } catch {}
+}
+
+export function setPreLaunchTaskDone(taskId, done, byName = 'system') {
+  if (!taskId) return;
+  const map = getPreLaunchProgress();
+  const prev = map[taskId] || {};
+  if (done) {
+    map[taskId] = {
+      ...prev,
+      done: true,
+      completedAt: prev.completedAt || new Date().toISOString(),
+      completedBy: byName,
+    };
+  } else {
+    map[taskId] = { ...prev, done: false, completedAt: null, completedBy: null };
+  }
+  savePreLaunchProgress(map);
+}
+
+export function setPreLaunchTaskNotes(taskId, notes) {
+  if (!taskId) return;
+  const map = getPreLaunchProgress();
+  map[taskId] = { ...(map[taskId] || {}), notes: notes || '' };
+  savePreLaunchProgress(map);
+}
+
 // ============================================================
 // LONG-TERM DATA HYGIENE
 // ------------------------------------------------------------

@@ -38,9 +38,11 @@ import {
   isAnnualChecklistDue,
   isAnnualSubmittedThisYear,
   getSettings,
+  getPreLaunchProgress,
 } from '../utils/storage';
 import { sendQuezEmail } from '../utils/emailjs';
 import { fmtClock } from '../utils/timeFormat';
+import { TOTAL_TASKS as PRELAUNCH_TOTAL } from '../data/preLaunchTimeline';
 
 // ── Helpers ───────────────────────────────────────────────────
 const formatTime = (iso) => iso ? fmtClock(iso) : '—';
@@ -623,6 +625,47 @@ export default function OwnerDashboard() {
                 ? (isSpanish ? 'Abrir Email' : 'Open Email Settings')
                 : (isSpanish ? 'Abrir Datos y Respaldo' : 'Open Data & Backup')}
             </button>
+          </div>
+        );
+      })()}
+
+      {/* ── Pre-Launch Timeline tile (owner only) ── */}
+      {session?.role === 'owner' && (() => {
+        const progress = getPreLaunchProgress();
+        const done = Object.values(progress).filter((v) => v && v.done).length;
+        const pct = PRELAUNCH_TOTAL > 0 ? Math.round((done / PRELAUNCH_TOTAL) * 100) : 0;
+        return (
+          <div
+            onClick={() => navigate('preLaunchTimeline')}
+            style={{
+              margin: '12px 16px 0',
+              background: 'linear-gradient(135deg, rgba(212,175,55,0.10), rgba(212,175,55,0.02))',
+              border: '1px solid rgba(212,175,55,0.4)',
+              borderRadius: 12,
+              padding: '14px 16px',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 18 }}>🚀</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: '#D4AF37', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  Pre-Launch Timeline
+                </div>
+                <div style={{ fontSize: 11, color: '#999', marginTop: 1 }}>
+                  Soft Open Feb 2027
+                </div>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#F5F0E8', fontFamily: 'Georgia, serif' }}>
+                {done}<span style={{ color: '#666', fontSize: 14 }}>/{PRELAUNCH_TOTAL}</span>
+              </div>
+            </div>
+            <div style={{ height: 5, background: '#222', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #D4AF37, #B8941C)', transition: 'width 0.3s ease' }} />
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: '#888', textAlign: 'right' }}>
+              {pct}% complete · Tap to open →
+            </div>
           </div>
         );
       })()}
