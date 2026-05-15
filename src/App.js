@@ -1,108 +1,167 @@
 // ============================================================
 // QUEZ APP LITE — App.js
-// Updated: Session 7 — Training Portal Phase 1 + Quiz
-// Logout handled entirely by AppContext — no duplicate popup here
+// Session 11: Role-based nav (max 5 tabs), More sheet, Admin hub, per-role Dashboard
 // ============================================================
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import './App.css';
 import './styles/checklist.css';
 import './styles/periodic.css';
+
 import PeriodicChecklists from './screens/PeriodicChecklists';
-import OwnerDashboard from './screens/OwnerDashboard';
 import LoginScreen from './screens/LoginScreen';
 import DailyChecklist from './screens/DailyChecklist';
 import SettingsScreen from './screens/SettingsScreen';
 import TrainingPortal from './screens/TrainingPortal';
+import TrainingApproval from './screens/TrainingApproval';
+import DrinkGuide from './screens/DrinkGuide';
+import OrderScreen from './screens/OrderScreen';
+import Dashboard from './screens/Dashboard';
+import AdminHub from './screens/AdminHub';
+import Profile from './screens/Profile';
+import Schedule from './screens/Schedule';
+import Reports from './screens/Reports';
+import Trainees from './screens/Trainees';
+import AuditLog from './screens/AuditLog';
+import Timesheet from './screens/Timesheet';
+import WasteLog from './screens/WasteLog';
+import Inventory from './screens/Inventory';
+import ShiftSwaps from './screens/ShiftSwaps';
 
 import {
   autoCloseOrphanedPunches,
   checkAndSendIncompleteAlert,
-  isWeeklyChecklistDue,
-  isWeeklySubmittedThisWeek,
-  isMonthlyChecklistDue,
-  isMonthlySubmittedThisMonth,
-  isQuarterlyChecklistDue,
-  isQuarterlySubmittedThisQuarter,
-  isAnnualChecklistDue,
-  isAnnualSubmittedThisYear,
   getEmployees,
   applyTrainingBypassIfEnabled,
 } from './utils/storage';
 
-// ── Periodic checklist badge helper ──────────────────────────
-function hasPeriodicChecklistDue(role) {
-  const rank = { owner: 4, manager: 3, lead_barista: 2, leadBarista: 2, barista: 1, trainee: 0 };
-  const r = rank[role] || 0;
-  if (r >= 2 && isWeeklyChecklistDue() && !isWeeklySubmittedThisWeek()) return true;
-  if (r >= 3 && isMonthlyChecklistDue() && !isMonthlySubmittedThisMonth()) return true;
-  if (r >= 3 && isQuarterlyChecklistDue() && !isQuarterlySubmittedThisQuarter()) return true;
-  if (r >= 3 && isAnnualChecklistDue() && !isAnnualSubmittedThisYear()) return true;
-  return false;
-}
+// ── Role helpers ──────────────────────────────────────────
+const ADMIN_ROLES = ['owner', 'manager'];
 
-// ── Nav tabs ──────────────────────────────────────────────
+// ── Nav tabs — always exactly 5: 4 primary + More ─────────
+// Drink Guide lives in More for every role (no duplication).
 function getNavTabs(role, language) {
   const lang = language || 'en';
-  const tabs = [];
+  const home  = { screen: 'dashboard',         icon: '⌂', label: lang === 'es' ? 'Inicio' : 'Home' };
+  const order = { screen: 'orders',            icon: '🧾', label: lang === 'es' ? 'Pedidos' : 'Orders' };
+  const list  = { screen: 'dailyChecklist',    icon: '☑', label: lang === 'es' ? 'Lista' : 'Checklist' };
+  const admin = { screen: 'adminHub',          icon: '⚙', label: lang === 'es' ? 'Admin' : 'Admin' };
+  const train = { screen: 'training',          icon: '🎓', label: lang === 'es' ? 'Entrena' : 'Training' };
+  const sched = { screen: 'schedule',          icon: '📆', label: lang === 'es' ? 'Horario' : 'Schedule' };
+  const more  = { screen: '__more__',          icon: '⋯', label: lang === 'es' ? 'Más' : 'More' };
 
-  if (['owner', 'manager', 'lead_barista', 'leadBarista', 'barista'].includes(role)) {
-    tabs.push({
-      screen: 'dailyChecklist',
-      icon: '☑',
-      label: lang === 'es' ? 'Lista' : 'Checklist',
-      badge: false,
-    });
+  if (ADMIN_ROLES.includes(role)) {
+    // Owner / Manager — admin tools win the primary slots
+    return [home, order, list, admin, more];
   }
-
-  if (['owner', 'manager', 'lead_barista', 'leadBarista'].includes(role)) {
-    tabs.push({
-      screen: 'periodicChecklists',
-      icon: '📅',
-      label: lang === 'es' ? 'Periódico' : 'Periodic',
-      badge: hasPeriodicChecklistDue(role),
-    });
+  if (role === 'leadBarista' || role === 'barista') {
+    // Lead/Barista — Schedule in primary (swap requests are launched from inside it)
+    return [home, order, list, sched, more];
   }
-
-  // Training tab: all roles get training access
-  tabs.push({
-    screen: 'training',
-    icon: '🎓',
-    label: lang === 'es' ? 'Entrena' : 'Training',
-    badge: false,
-  });
-
-  if (role === 'owner') {
-    tabs.push({
-      screen: 'ownerDashboard',
-      icon: '◉',
-      label: lang === 'es' ? 'Panel' : 'Dashboard',
-      badge: false,
-    });
-    tabs.push({
-      screen: 'settings',
-      icon: '⚙',
-      label: lang === 'es' ? 'Ajustes' : 'Settings',
-      badge: false,
-    });
+  if (role === 'trainee') {
+    return [home, train, sched, more];
   }
-
-  return tabs;
+  return [home, more];
 }
+
+// ── Items shown inside the "More" sheet, by role ─────────
+function getMoreItems(role, language) {
+  const lang = language || 'en';
+  const items = [];
+
+  // Drink Guide — everyone, lives in More so it's never duplicated against primary nav
+  items.push({ screen: 'drinkGuide', icon: '☕', label: lang === 'es' ? 'Guía de Bebidas' : 'Drink Guide' });
+
+  // Schedule is already a primary tab for barista/lead/trainee — only surface in More for admin
+  // (admin reaches it via AdminHub tile too, but having it in More is convenient)
+  // For now, no separate Schedule entry here for any role — admins use AdminHub.
+
+  // Admin: training portal (review), barista/lead: their own training
+  if (ADMIN_ROLES.includes(role)) {
+    items.push({ screen: 'training', icon: '🎓', label: lang === 'es' ? 'Entrenamiento' : 'Training Portal' });
+  }
+  if (['barista', 'leadBarista'].includes(role)) {
+    items.push({ screen: 'training', icon: '🎓', label: lang === 'es' ? 'Mi Entrenamiento' : 'My Training' });
+  }
+
+  // Periodic for lead barista
+  if (role === 'leadBarista') {
+    items.push({ screen: 'periodicChecklists', icon: '📅', label: lang === 'es' ? 'Periódico' : 'Periodic' });
+  }
+
+  // Shift Swaps for trainee + admin (lead/barista already have it in primary nav)
+  if (role === 'trainee' || ADMIN_ROLES.includes(role)) {
+    items.push({ screen: 'shiftSwaps', icon: '🔄', label: lang === 'es' ? 'Cambios de Turno' : 'Shift Swaps' });
+  }
+
+  // Profile + Sign Out — everyone
+  items.push({ screen: 'profile', icon: '👤', label: lang === 'es' ? 'Mi Perfil' : 'My Profile' });
+  items.push({ screen: '__logout__', icon: '⏏', label: lang === 'es' ? 'Cerrar Sesión' : 'Sign Out' });
+
+  return items;
+}
+
+// ── Global clock ─ 12-hour h:mm + am/pm, top-right on every screen post-login ──
+function GlobalClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    // Tick every 15s so the minute roll never lags more than that
+    const id = setInterval(() => setNow(new Date()), 15 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  const rawH = now.getHours();
+  const h12 = ((rawH + 11) % 12) + 1;
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const period = rawH < 12 ? 'am' : 'pm';
+  return (
+    <div style={clockStyles.pill} aria-label="Current time" className="quez-clock-pill">
+      {h12}<span style={clockStyles.colon}>:</span>{mm}
+      <span style={clockStyles.period} className="quez-clock-period">{period}</span>
+    </div>
+  );
+}
+
+const clockStyles = {
+  pill: {
+    position: 'fixed',
+    top: 'calc(10px + env(safe-area-inset-top, 0px))',
+    right: 12,
+    zIndex: 90,
+    background: 'rgba(13,13,13,0.78)',
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+    border: '1px solid rgba(212,175,55,0.40)',
+    borderRadius: 20,
+    padding: '5px 11px',
+    color: '#D4AF37',
+    fontFamily: "'Playfair Display', Georgia, serif",
+    fontSize: 14,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    lineHeight: 1,
+    pointerEvents: 'none',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.45)',
+    display: 'inline-flex',
+    alignItems: 'baseline',
+    gap: 1,
+  },
+  colon: { opacity: 0.55, margin: '0 1px' },
+  period: { fontSize: 9, marginLeft: 4, opacity: 0.7, letterSpacing: '0.08em', fontWeight: 600 },
+};
 
 // ── Inner app ─────────────────────────────────────────────
 function AppInner() {
-  const { session, currentScreen, language, navigate, logout, isReady } = useApp();
+  const { session, currentScreen, language, navigate, push, goBack, canGoBack, logout, isReady } = useApp();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     if (isReady) {
       autoCloseOrphanedPunches();
       checkAndSendIncompleteAlert();
-      // Apply training bypass for current session user on app load
       if (session) {
         const employees = getEmployees();
-        const emp = employees.find(e => e.id === session.id);
+        const emp = employees.find((e) => e.id === session.id);
         if (emp) applyTrainingBypassIfEnabled(emp);
       }
     }
@@ -125,54 +184,163 @@ function AppInner() {
     return <LoginScreen />;
   }
 
-  const navTabs = getNavTabs(session.role, language);
+  const navTabs   = getNavTabs(session.role, language);
+  const moreItems = getMoreItems(session.role, language);
+
+  const handleTabClick = (screen) => {
+    if (screen === '__more__') { setMoreOpen(true); return; }
+    setMoreOpen(false);
+    navigate(screen);
+  };
+
+  const handleMoreClick = (screen) => {
+    setMoreOpen(false);
+    if (screen === '__logout__') { logout(); return; }
+    // Drill-down — preserve back history
+    push(screen);
+  };
 
   return (
     <div className="app">
+      {/* Global clock — top-right on every post-login screen */}
+      <GlobalClock />
+
       <div className="app-content">
+        {/* In-flow back bar — sits above each screen's own header so titles stay centered */}
+        {canGoBack && (
+          <div style={backBtnStyles.bar}>
+            <button style={backBtnStyles.btn} onClick={goBack} type="button">
+              <span style={backBtnStyles.chev}>‹</span>
+              <span>{language === 'es' ? 'Atrás' : 'Back'}</span>
+            </button>
+          </div>
+        )}
+
+        {currentScreen === 'dashboard'           && <Dashboard />}
         {currentScreen === 'dailyChecklist'      && <DailyChecklist />}
         {currentScreen === 'periodicChecklists'  && <PeriodicChecklists />}
-        {currentScreen === 'ownerDashboard'      && <OwnerDashboard />}
         {currentScreen === 'settings'            && <SettingsScreen />}
         {currentScreen === 'training'            && <TrainingPortal />}
+        {currentScreen === 'trainingApproval'    && <TrainingApproval />}
+        {currentScreen === 'drinkGuide'          && <DrinkGuide />}
+        {currentScreen === 'orders'              && <OrderScreen />}
+        {currentScreen === 'adminHub'            && <AdminHub />}
+        {currentScreen === 'profile'             && <Profile />}
+        {currentScreen === 'schedule'            && <Schedule />}
+        {currentScreen === 'reports'             && <Reports />}
+        {currentScreen === 'trainees'            && <Trainees />}
+        {currentScreen === 'auditLog'            && <AuditLog />}
+        {currentScreen === 'timesheet'           && <Timesheet />}
+        {currentScreen === 'wasteLog'            && <WasteLog />}
+        {currentScreen === 'inventory'           && <Inventory />}
+        {currentScreen === 'shiftSwaps'          && <ShiftSwaps />}
       </div>
 
       <nav className="app-nav">
-        {navTabs.map((tab) => (
-          <button
-            key={tab.screen}
-            className={`app-nav-tab ${currentScreen === tab.screen ? 'app-nav-tab--active' : ''}`}
-            onClick={() => navigate(tab.screen)}
-            type="button"
-            style={{ position: 'relative' }}
-          >
-            {tab.badge && (
-              <span style={{
-                position: 'absolute',
-                top: 6,
-                right: '50%',
-                transform: 'translateX(10px)',
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: '#e05252',
-                border: '1.5px solid #0D0D0D',
-              }} />
-            )}
-            <span className="app-nav-icon">{tab.icon}</span>
-            <span className="app-nav-label">{tab.label}</span>
-          </button>
-        ))}
-
-        {/* Logout — triggers AppContext popup, no local state needed */}
-        <button className="app-nav-tab" onClick={logout} type="button">
-          <span className="app-nav-icon">⏏</span>
-          <span className="app-nav-label">{language === 'es' ? 'Salir' : 'Logout'}</span>
-        </button>
+        {navTabs.map((tab) => {
+          const isActive = (tab.screen === '__more__') ? moreOpen : (currentScreen === tab.screen);
+          return (
+            <button
+              key={tab.screen}
+              className={`app-nav-tab ${isActive ? 'app-nav-tab--active' : ''}`}
+              onClick={() => handleTabClick(tab.screen)}
+              type="button"
+            >
+              <span className="app-nav-icon">{tab.icon}</span>
+              <span className="app-nav-label">{tab.label}</span>
+            </button>
+          );
+        })}
       </nav>
+
+      {moreOpen && (
+        <div style={moreStyles.overlay} onClick={() => setMoreOpen(false)}>
+          <div style={moreStyles.sheet} onClick={(e) => e.stopPropagation()}>
+            <div style={moreStyles.handle} />
+            <div style={moreStyles.title}>
+              {language === 'es' ? 'Más' : 'More'}
+            </div>
+            {moreItems.map((item) => (
+              <button
+                key={item.screen}
+                style={{
+                  ...moreStyles.item,
+                  ...(item.screen === '__logout__' ? moreStyles.itemLogout : {}),
+                }}
+                onClick={() => handleMoreClick(item.screen)}
+              >
+                <span style={moreStyles.itemIcon}>{item.icon}</span>
+                <span style={moreStyles.itemLabel}>{item.label}</span>
+                <span style={moreStyles.chev}>›</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const backBtnStyles = {
+  bar: {
+    background: '#0D0D0D',
+    borderBottom: '1px solid rgba(212,175,55,0.10)',
+    padding: 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px',
+    display: 'flex',
+    alignItems: 'center',
+    position: 'sticky',
+    top: 0,
+    zIndex: 30,
+  },
+  btn: {
+    background: 'transparent',
+    border: '1px solid rgba(212,175,55,0.35)',
+    borderRadius: 18,
+    color: '#D4AF37',
+    padding: '5px 13px 5px 9px',
+    fontSize: 12,
+    fontWeight: 700,
+    fontFamily: "'Inter', 'Helvetica Neue', sans-serif",
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    letterSpacing: '0.04em',
+  },
+  chev: { fontSize: 18, lineHeight: 1, marginTop: -2 },
+};
+
+const moreStyles = {
+  overlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+    zIndex: 8000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+  },
+  sheet: {
+    background: '#1A1A1A', borderTop: '1px solid rgba(212,175,55,0.4)',
+    borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 580,
+    padding: '12px 12px calc(20px + env(safe-area-inset-bottom, 0px))',
+    marginBottom: 78, // sit above the nav
+  },
+  handle: {
+    width: 44, height: 4, background: '#444', borderRadius: 2,
+    margin: '6px auto 14px',
+  },
+  title: {
+    fontFamily: 'Georgia, serif', fontSize: 14, color: '#D4AF37',
+    letterSpacing: '0.12em', textTransform: 'uppercase',
+    marginLeft: 14, marginBottom: 10, fontWeight: 700,
+  },
+  item: {
+    width: '100%', background: 'transparent', border: 'none',
+    borderRadius: 10, padding: '13px 14px',
+    color: '#F5F0E8', display: 'flex', alignItems: 'center', gap: 14,
+    cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+  },
+  itemLogout: { color: '#E05252', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' },
+  itemIcon: { fontSize: 20, width: 28, textAlign: 'center' },
+  itemLabel: { flex: 1, fontSize: 15, fontWeight: 600 },
+  chev: { fontSize: 20, color: '#555' },
+};
 
 export default function App() {
   return (

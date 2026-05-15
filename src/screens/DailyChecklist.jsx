@@ -3,7 +3,7 @@
 // Checklist state is global (date-based), not per-user.
 // Anyone who logs in picks up exactly where it was left off.
 // ============================================================
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { OPENING_ITEMS, MID_SERVICE_ITEMS, CLOSING_ITEMS } from '../data/checklistItems';
 import { sendQuezEmail } from '../utils/emailjs';
 import {
@@ -17,25 +17,15 @@ import {
   loadChecklistState,
   storageGet,
 } from '../utils/storage';
+import { fmtClock } from '../utils/timeFormat';
 
 // ── Helpers ───────────────────────────────────────────────
-const fmtTime = (iso) => {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-};
+const fmtTime = (iso) => iso ? fmtClock(iso) : '—';
 
 const fmtDate = () =>
   new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
-
-const fmtDuration = (startIso, endIso) => {
-  if (!startIso || !endIso) return '—';
-  const ms = new Date(endIso) - new Date(startIso);
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-};
 
 const isItemComplete = (item, values) => {
   const val = values[item.id];
@@ -417,6 +407,11 @@ const DailyChecklist = () => {
         submittedAt: now,
       });
       markDailyChecklistSubmitted(user?.name, user?.location);
+      // Fire auto-backup on close (subject to user config + 24h throttle)
+      try {
+        const { maybeAutoBackup } = await import('../utils/storage');
+        maybeAutoBackup('closing_checklist').catch(() => {});
+      } catch {}
     }
 
     await sendQuezEmail({

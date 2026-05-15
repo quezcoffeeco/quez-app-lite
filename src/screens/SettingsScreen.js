@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { getSettings, saveSettings, getEmployees, saveEmployees, getMenu, saveMenu } from '../utils/storage';
-import { t } from '../utils/i18n';
+import { getSettings, saveSettings, getEmployees, saveEmployees, getMenu, saveMenu, resetEmployeePin, getPeriodicDueConfig, savePeriodicDueConfig, getSeasonalDrink, setSeasonalDrink, getTodayLocation, setTodayLocation, getDailyGoal, setDailyGoal, getPlaylistUrl, setPlaylistUrl, downloadBackup, readBackupFile, restoreFromBundle, getStorageHealth, requestPersistentStorage, getAutoBackupConfig, setAutoBackupConfig, sendBackupEmail, getLastAutoBackupAt } from '../utils/storage';
 
 const ROLES = ['owner','manager','leadBarista','barista','trainee'];
 const ROLE_LABELS = { owner:'Owner', manager:'Manager', leadBarista:'Lead Barista', barista:'Barista', trainee:'Trainee' };
@@ -112,17 +111,54 @@ function EmployeeModal({emp, employees, onSave, onClose}) {
   const isEdit = !!emp;
   const [name, setName] = useState(emp?.name||'');
   const [role, setRole] = useState(emp?.role||'barista');
-  const [pin, setPin] = useState(emp?.pin||'');
+  // New employees default to PIN 0000 and must change on first login.
+  const [pin, setPin] = useState(emp?.pin || '0000');
+  const [wage, setWage] = useState(emp?.wagePerHour != null ? String(emp.wagePerHour) : '');
+  // Trainer is stored by id; legacy records may have only trainerName — back-fill.
+  const [trainerId, setTrainerId] = useState(() => {
+    if (emp?.trainerId) return emp.trainerId;
+    if (emp?.trainerName && Array.isArray(employees)) {
+      const match = employees.find((x) => x.name === emp.trainerName);
+      return match?.id || '';
+    }
+    return '';
+  });
+  const [birthday, setBirthday] = useState(emp?.birthday || ''); // MM-DD format
   const [err, setErr] = useState({});
-  const needsPin = PIN_ROLES.includes(role);
+
+  // Potential trainers — owner / manager / lead barista, active only
+  const potentialTrainers = employees.filter((e) =>
+    e.active && (e.role === 'owner' || e.role === 'manager' || e.role === 'leadBarista')
+  );
 
   function save() {
     const e = {};
     if (!name.trim()) e.name = 'Required';
     else if (!isEdit && employees.some(x=>x.active&&x.name.toLowerCase()===name.trim().toLowerCase())) e.name = 'Name already exists';
-    if (needsPin && !/^\d{4}$/.test(pin)) e.pin = 'Must be exactly 4 digits';
+    if (!/^\d{4}$/.test(pin)) e.pin = 'Must be exactly 4 digits';
+    const wageNum = wage === '' ? 0 : parseFloat(wage);
+    if (wage !== '' && (!Number.isFinite(wageNum) || wageNum < 0)) e.wage = 'Must be a positive number';
+    if (birthday && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(birthday)) {
+      e.birthday = 'Format MM-DD (e.g. 08-23). Month 01-12, day 01-31.';
+    }
     if (Object.keys(e).length) { setErr(e); return; }
-    onSave({...(emp||{}), name:name.trim(), role, pin:needsPin?pin:'', active:true, id:emp?.id||('emp-'+Date.now()), createdAt:emp?.createdAt||new Date().toISOString()});
+    // Anyone whose PIN was set to the default must change it on first login.
+    const mustChangePin = pin === '0000' ? true : (emp?.mustChangePin || false);
+    onSave({
+      ...(emp||{}),
+      name: name.trim(),
+      role,
+      pin,
+      mustChangePin,
+      wagePerHour: Number.isFinite(wageNum) ? Math.round(wageNum * 100) / 100 : 0,
+      trainerId: trainerId || null,
+      // Keep trainerName in sync for backward compat / display fallback
+      trainerName: trainerId ? (potentialTrainers.find((t) => t.id === trainerId)?.name || null) : null,
+      birthday: birthday && /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(birthday) ? birthday : null,
+      active: true,
+      id: emp?.id || ('emp-'+Date.now()),
+      createdAt: emp?.createdAt || new Date().toISOString(),
+    });
   }
 
   return (
@@ -141,12 +177,57 @@ function EmployeeModal({emp, employees, onSave, onClose}) {
             {ROLES.map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>
         </Field>
-        {needsPin && (
-          <Field label="PIN" note="4 digits, required for Owner and Manager">
-            <input style={S.input} type="password" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="4-digit PIN" maxLength={4} />
-            {err.pin && <div style={{...S.note,color:'#C84B4B'}}>{err.pin}</div>}
+        <Field label="PIN" note="4 digits, required for all roles. Default 0000 — employee will be prompted to change on first login.">
+          <input style={S.input} type="password" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="4-digit PIN" maxLength={4} />
+          {err.pin && <div style={{...S.note,color:'#C84B4B'}}>{err.pin}</div>}
+          {isEdit && (
+            <button
+              type="button"
+              style={{...S.btn,...S.btnGhost,marginTop:8,fontSize:12,padding:'6px 10px'}}
+              onClick={() => {
+                if (!window.confirm(`Reset ${emp.name}'s PIN to 0000? They will be prompted to set a new one on next login.`)) return;
+                resetEmployeePin(emp.id, 'admin');
+                setPin('0000');
+                window.alert('PIN reset. Employee will set a new PIN on next login.');
+              }}
+            >
+              ↻ Reset PIN to 0000
+            </button>
+          )}
+        </Field>
+        <Field label="Wage per Hour ($)" note="Used to calculate labor cost on Reports. Leave 0 if not tracking.">
+          <input
+            style={S.input}
+            type="text"
+            inputMode="decimal"
+            value={wage}
+            onChange={e=>setWage(e.target.value.replace(/[^0-9.]/g,''))}
+            placeholder="e.g. 14.50"
+            maxLength={7}
+          />
+          {err.wage && <div style={{...S.note,color:'#C84B4B'}}>{err.wage}</div>}
+        </Field>
+        {role === 'trainee' && (
+          <Field label="Assigned Trainer" note="Shown on the trainee's Home so they know who to ask.">
+            <select style={S.input} value={trainerId} onChange={(e) => setTrainerId(e.target.value)}>
+              <option value="">— None —</option>
+              {potentialTrainers.map((t) => (
+                <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
+              ))}
+            </select>
           </Field>
         )}
+        <Field label="Birthday (MM-DD)" note="Optional. Surfaces on the Home a week before — builds team warmth. Year not stored.">
+          <input
+            style={S.input}
+            type="text"
+            value={birthday}
+            onChange={(e) => setBirthday(e.target.value.replace(/[^\d-]/g, '').slice(0, 5))}
+            placeholder="08-23"
+            maxLength={5}
+          />
+          {err.birthday && <div style={{...S.note,color:'#C84B4B'}}>{err.birthday}</div>}
+        </Field>
         <div style={{display:'flex',gap:10,marginTop:24}}>
           <button style={{...S.btn,...S.btnGhost,flex:1}} onClick={onClose}>Cancel</button>
           <button style={{...S.btn,...S.btnGold,flex:1}} onClick={save}>Save</button>
@@ -212,6 +293,458 @@ function DrinkModal({drink, onSave, onClose}) {
   );
 }
 
+function DataBackupEditor({ viewerIsOwner = true }) {
+  const [health, setHealth] = useState(null);
+  const [status, setStatus] = useState('');
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const fileRef = useRef(null);
+
+  const refresh = async () => {
+    try {
+      const h = await getStorageHealth();
+      setHealth(h);
+    } catch {}
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  // Detect installable + already-installed state
+  useEffect(() => {
+    // Already installed (PWA mode)
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      const standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+      setIsInstalled(standalone);
+    }
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    const installed = () => { setIsInstalled(true); setInstallPrompt(null); };
+    window.addEventListener('appinstalled', installed);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', installed);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setInstallPrompt(null);
+      setStatus('Installing... after install completes, persistent storage will be granted automatically.');
+      // Re-request persistent after a beat
+      setTimeout(async () => {
+        await requestPersistentStorage();
+        refresh();
+      }, 1500);
+    }
+  };
+
+  const fmtBytes = (n) => {
+    if (!n) return '0 B';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  };
+  const fmtDt = (iso) => iso ? new Date(iso).toLocaleString() : '—';
+
+  const handleExport = () => {
+    downloadBackup();
+    setStatus('Backup downloaded.');
+    refresh();
+    setTimeout(() => setStatus(''), 3500);
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm('Import this backup? This will REPLACE all current data on this device. Cannot be undone.')) {
+      e.target.value = '';
+      return;
+    }
+    try {
+      const bundle = await readBackupFile(file);
+      restoreFromBundle(bundle, 'replace');
+      setStatus(`Restored ${bundle.keyCount || Object.keys(bundle.data).length} keys. Reloading...`);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      setStatus('Import failed: ' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Auto-backup config
+  const [autoBackup, setAutoBackupState] = useState(() => getAutoBackupConfig());
+  const [lastAuto, setLastAuto] = useState(() => getLastAutoBackupAt());
+  const [sendingNow, setSendingNow] = useState(false);
+
+  const updateAuto = (patch) => {
+    const next = { ...autoBackup, ...patch };
+    setAutoBackupState(next);
+    setAutoBackupConfig(next);
+  };
+
+  const sendAutoNow = async () => {
+    setSendingNow(true);
+    setStatus('Sending backup email...');
+    const result = await sendBackupEmail('manual', 'admin');
+    setSendingNow(false);
+    setLastAuto(getLastAutoBackupAt());
+    if (result.sent) {
+      setStatus(`✓ Backup emailed to ${result.recipients} recipient${result.recipients !== 1 ? 's' : ''}${result.tooBig ? ' (size warning sent — manual export needed)' : ''}.`);
+    } else {
+      setStatus('✗ Send failed: ' + (result.error || 'unknown'));
+    }
+    setTimeout(() => setStatus(''), 5000);
+  };
+
+  const handleRequestPersist = async () => {
+    const granted = await requestPersistentStorage();
+    setStatus(granted
+      ? 'Persistent storage granted. The browser will protect this data from eviction.'
+      : 'Persistent status not granted. The app will keep trying. Bookmark or install the app to improve eligibility.');
+    refresh();
+    setTimeout(() => setStatus(''), 6000);
+  };
+
+  return (
+    <div>
+      <div style={{...S.note, marginBottom: 16}}>
+        All data lives in your browser's localStorage on this device. Export it weekly so you always have a backup file. If you ever clear your browser, switch devices, or hit a problem — import the most recent backup to restore.
+      </div>
+
+      {/* Install as App — the reliable path to persistent storage */}
+      {(installPrompt || !isInstalled) && (
+        <div style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.10), rgba(212,175,55,0.04))', border: '1px solid rgba(212,175,55,0.45)', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#D4AF37', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+            {isInstalled ? '✓ Installed as App' : 'Install for Best Durability'}
+          </div>
+          <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.5, marginBottom: installPrompt || !isInstalled ? 10 : 0 }}>
+            {isInstalled
+              ? "Quez is running as an installed app. Persistent storage was granted automatically — your data is protected from browser eviction."
+              : installPrompt
+                ? "Install Quez to your home screen. Once installed, the browser automatically grants persistent storage and protects your data."
+                : "Already installed elsewhere? Open the installed app for full durability. If installing isn't offered here, your browser may not support PWA install on this device. Try Chrome on Android or Safari → Share → Add to Home Screen on iOS."}
+          </div>
+          {installPrompt && (
+            <button style={{...S.btn, ...S.btnGold, width: '100%'}} onClick={handleInstall}>
+              ⬇ Install Quez App
+            </button>
+          )}
+          {!installPrompt && !isInstalled && (
+            <div style={{ fontSize: 11, color: '#888', lineHeight: 1.5 }}>
+              <b style={{ color: '#D4AF37' }}>iPhone / iPad:</b> tap Share → "Add to Home Screen"<br />
+              <b style={{ color: '#D4AF37' }}>Android Chrome:</b> tap ⋮ menu → "Install app"<br />
+              <b style={{ color: '#D4AF37' }}>Desktop Chrome:</b> click the ⊕ install icon in the address bar
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Storage health */}
+      {health && (
+        <div style={{ background: '#0D0D0D', border: '1px solid #2A2A2A', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Storage Health</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+            <span style={{ color: '#aaa' }}>Data used</span>
+            <span style={{ color: '#D4AF37', fontWeight: 700 }}>
+              {fmtBytes(health.usedBytes)}
+              {health.quotaBytes > 0 && <span style={{ color: '#888', fontWeight: 400 }}> / {fmtBytes(health.quotaBytes)} ({health.percent}%)</span>}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+            <span style={{ color: '#aaa' }}>Persistent</span>
+            <span style={{ color: health.isPersistent ? '#4CAF50' : '#E05252', fontWeight: 700 }}>
+              {health.isPersistent ? '✓ Protected from eviction' : '✗ Not protected'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+            <span style={{ color: '#aaa' }}>Last backup</span>
+            <span style={{ color: health.lastBackupAt ? '#F5F0E8' : '#E05252', fontWeight: 600 }}>
+              {fmtDt(health.lastBackupAt)}
+            </span>
+          </div>
+          {!health.isPersistent && (
+            <button style={{...S.btn, ...S.btnGhost, width: '100%', marginTop: 10}} onClick={handleRequestPersist}>
+              Request persistent storage
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Auto-backup email — owner-managed business policy */}
+      {viewerIsOwner && (
+      <div style={{ background: '#0D0D0D', border: '1px solid #2A2A2A', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: '#888', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+          📧 Auto-Email Backup
+        </div>
+        <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5, marginBottom: 10 }}>
+          Sends a copy of every backup to your owner email + additional recipients automatically. Worst-case data loss is capped at one day.
+        </div>
+
+        <label style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #1a1a1a', cursor:'pointer'}}>
+          <div>
+            <div style={{fontSize:14, fontWeight:600, color:'#F5F0E8'}}>Auto-backup enabled</div>
+            <div style={{fontSize:11, color:'#888'}}>Master switch</div>
+          </div>
+          <Toggle checked={autoBackup.enabled} onChange={(v) => updateAuto({ enabled: v })} />
+        </label>
+
+        <label style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #1a1a1a', cursor:'pointer', opacity: autoBackup.enabled ? 1 : 0.4}}>
+          <div>
+            <div style={{fontSize:14, fontWeight:600, color:'#F5F0E8'}}>Daily — first app open</div>
+            <div style={{fontSize:11, color:'#888'}}>Fires once per calendar day, on the first interaction</div>
+          </div>
+          <Toggle checked={autoBackup.daily} onChange={(v) => updateAuto({ daily: v })} disabled={!autoBackup.enabled} />
+        </label>
+
+        <label style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', cursor:'pointer', opacity: autoBackup.enabled ? 1 : 0.4}}>
+          <div>
+            <div style={{fontSize:14, fontWeight:600, color:'#F5F0E8'}}>On closing checklist</div>
+            <div style={{fontSize:11, color:'#888'}}>Belt-and-suspenders trigger at end of business day</div>
+          </div>
+          <Toggle checked={autoBackup.onClosingChecklist} onChange={(v) => updateAuto({ onClosingChecklist: v })} disabled={!autoBackup.enabled} />
+        </label>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, padding: '8px 10px', background: '#1A1A1A', borderRadius: 6 }}>
+          <div style={{fontSize:11, color:'#888'}}>Last auto-email</div>
+          <div style={{fontSize:12, color: lastAuto ? '#D4AF37' : '#666', fontWeight:600}}>
+            {lastAuto ? new Date(lastAuto).toLocaleString() : 'never'}
+          </div>
+        </div>
+
+        <button
+          style={{...S.btn, ...S.btnGhost, width: '100%', marginTop: 10, opacity: sendingNow ? 0.6 : 1}}
+          disabled={sendingNow}
+          onClick={sendAutoNow}
+        >
+          {sendingNow ? 'Sending...' : '✉ Send Backup Email Now'}
+        </button>
+      </div>
+      )}
+
+      {/* Export / Import — Export available to all admins, Import owner-only (destructive) */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <button style={{...S.btn, ...S.btnGold, flex: 1}} onClick={handleExport}>
+          ⬇ Export Backup
+        </button>
+        {viewerIsOwner && (
+          <>
+            <button style={{...S.btn, ...S.btnGhost, flex: 1}} onClick={() => fileRef.current?.click()}>
+              ⬆ Import Backup
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={handleImport}
+            />
+          </>
+        )}
+      </div>
+      {!viewerIsOwner && (
+        <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic', padding: '4px 0 8px' }}>
+          Import (data restore) is owner-only — it overwrites all device data.
+        </div>
+      )}
+
+      {status && (
+        <div style={{ fontSize: 12, color: status.startsWith('Import failed') ? '#E05252' : '#4CAF50', padding: '6px 0' }}>
+          {status}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: '#666', marginTop: 8, lineHeight: 1.5 }}>
+        <b>Tip:</b> Email the backup file to yourself once a week. If you ever lose this device's data, just open the email and import the attachment.
+      </div>
+    </div>
+  );
+}
+
+function TodayOpsEditor() {
+  const [seasonal, setSeasonal] = useState(() => getSeasonalDrink());
+  const [location, setLocation] = useState(() => getTodayLocation());
+  const [goal, setGoal] = useState(() => String(getDailyGoal() || ''));
+  const [playlist, setPlaylist] = useState(() => getPlaylistUrl());
+
+  return (
+    <div>
+      <div style={{...S.note, marginBottom: 14}}>
+        Quick-update fields that appear on every employee's home page. Set the seasonal, where the unit is parked today, and a daily drinks goal.
+      </div>
+      <Field label="Featured / Seasonal Drink" note="Shown on Home as 'This season's drink'.">
+        <input
+          style={S.input}
+          value={seasonal}
+          onChange={(e) => { setSeasonal(e.target.value); setSeasonalDrink(e.target.value); }}
+          placeholder="e.g. Lavender Honey Fog"
+          maxLength={80}
+        />
+      </Field>
+      <Field label="Today's Location" note="Where is the unit parked today? Shown on every Home.">
+        <input
+          style={S.input}
+          value={location}
+          onChange={(e) => { setLocation(e.target.value); setTodayLocation(e.target.value); }}
+          placeholder="e.g. Broadway Corridor — West End"
+          maxLength={80}
+        />
+      </Field>
+      <Field label="Daily Drink Goal" note="Drives the goal-progress bar + streak counter. Leave 0 to hide.">
+        <input
+          style={S.input}
+          type="number"
+          min={0}
+          value={goal}
+          onChange={(e) => { setGoal(e.target.value); setDailyGoal(parseInt(e.target.value, 10) || 0); }}
+          placeholder="e.g. 150"
+        />
+      </Field>
+      <Field label="Today's Playlist URL" note="Spotify, Apple Music, or YouTube link. Shows as a ▶ button on every Home.">
+        <input
+          style={S.input}
+          type="url"
+          value={playlist}
+          onChange={(e) => { setPlaylist(e.target.value); setPlaylistUrl(e.target.value); }}
+          placeholder="https://open.spotify.com/playlist/..."
+        />
+      </Field>
+    </div>
+  );
+}
+
+function PeriodicScheduleEditor() {
+  const [cfg, setCfg] = useState(() => getPeriodicDueConfig());
+  const update = (key, patch) => {
+    const next = { ...cfg, [key]: { ...cfg[key], ...patch } };
+    setCfg(next);
+    savePeriodicDueConfig({ [key]: next[key] });
+  };
+
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  return (
+    <div>
+      <div style={{...S.note, marginBottom: 16}}>
+        Set the day each periodic checklist becomes due. Changes apply immediately and are checked against today's date.
+      </div>
+
+      {/* Weekly */}
+      <div style={{marginBottom: 18}}>
+        <div style={{fontSize: 13, fontWeight: 700, color: '#D4AF37', marginBottom: 8, letterSpacing: '0.06em'}}>WEEKLY</div>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+          <span style={{fontSize: 13, color: '#aaa', flex: 1}}>Due every</span>
+          <select
+            style={{...S.input, width: 120}}
+            value={cfg.weekly.dow}
+            onChange={(e) => update('weekly', { dow: parseInt(e.target.value, 10) })}
+          >
+            {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Monthly */}
+      <div style={{marginBottom: 18}}>
+        <div style={{fontSize: 13, fontWeight: 700, color: '#D4AF37', marginBottom: 8, letterSpacing: '0.06em'}}>MONTHLY</div>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+          <span style={{fontSize: 13, color: '#aaa', flex: 1}}>Due on day</span>
+          <select
+            style={{...S.input, width: 100}}
+            value={cfg.monthly.dom}
+            onChange={(e) => update('monthly', { dom: parseInt(e.target.value, 10) })}
+          >
+            {Array.from({length: 28}, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <span style={{fontSize: 12, color: '#666'}}>of the month</span>
+        </div>
+      </div>
+
+      {/* Quarterly */}
+      <div style={{marginBottom: 18}}>
+        <div style={{fontSize: 13, fontWeight: 700, color: '#D4AF37', marginBottom: 8, letterSpacing: '0.06em'}}>QUARTERLY</div>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8}}>
+          <span style={{fontSize: 13, color: '#aaa', flex: 1}}>Due on day</span>
+          <select
+            style={{...S.input, width: 100}}
+            value={cfg.quarterly.dom}
+            onChange={(e) => update('quarterly', { dom: parseInt(e.target.value, 10) })}
+          >
+            {Array.from({length: 28}, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <span style={{fontSize: 12, color: '#666'}}>of these months:</span>
+        </div>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4}}>
+          {MONTHS.map((m, i) => {
+            const active = cfg.quarterly.months.includes(i);
+            return (
+              <button
+                key={i}
+                type="button"
+                style={{
+                  background: active ? 'rgba(212,175,55,0.18)' : '#1A1A1A',
+                  border: active ? '1px solid #D4AF37' : '1px solid #333',
+                  color: active ? '#D4AF37' : '#888',
+                  padding: '6px 0',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+                onClick={() => {
+                  const months = active
+                    ? cfg.quarterly.months.filter((x) => x !== i)
+                    : [...cfg.quarterly.months, i].sort((a, b) => a - b);
+                  update('quarterly', { months });
+                }}
+              >
+                {m}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Annual */}
+      <div>
+        <div style={{fontSize: 13, fontWeight: 700, color: '#D4AF37', marginBottom: 8, letterSpacing: '0.06em'}}>ANNUAL</div>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+          <span style={{fontSize: 13, color: '#aaa', flex: 1}}>Due on</span>
+          <select
+            style={{...S.input, width: 110}}
+            value={cfg.annual.month}
+            onChange={(e) => update('annual', { month: parseInt(e.target.value, 10) })}
+          >
+            {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          <select
+            style={{...S.input, width: 80}}
+            value={cfg.annual.day}
+            onChange={(e) => update('annual', { day: parseInt(e.target.value, 10) })}
+          >
+            {Array.from({length: 28}, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ConfirmModal({message, onConfirm, onClose}) {
   return (
     <div style={S.overlay} onClick={onClose}>
@@ -227,7 +760,8 @@ function ConfirmModal({message, onConfirm, onClose}) {
 }
 
 export default function SettingsScreen() {
-  const { language, setLanguage } = useApp();
+  const { language, setLanguage, currentUser } = useApp();
+  const viewerIsOwner = currentUser?.role === 'owner';
   const [settings, setSettingsState] = useState(()=>getSettings());
   const [employees, setEmployees] = useState(()=>getEmployees());
   const [menu, setMenu] = useState(()=>{
@@ -243,8 +777,10 @@ export default function SettingsScreen() {
   const [emailTesting, setEmailTesting] = useState(false);
   const saveTimer = useRef(null);
 
+  // Seed the default menu on first launch only. `menu` is initial-state derived, never re-evaluated.
   useEffect(()=>{
     if(menu.length>0 && getMenu().length===0) { saveMenu(menu); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   function persistSettings(next) {
@@ -276,7 +812,9 @@ export default function SettingsScreen() {
   }
 
   function toggleEmpActive(emp) {
-    if (emp.id==='emp-owner-001') return;
+    // Cannot deactivate an owner unless the viewer is also an owner; never deactivate yourself.
+    if (emp.role === 'owner' && !viewerIsOwner) return;
+    if (emp.id === currentUser?.id) return;
     setConfirm({
       message: emp.active ? `Deactivate ${emp.name}? They will be removed from the login screen.` : `Reactivate ${emp.name}?`,
       onConfirm: ()=>{
@@ -379,20 +917,30 @@ export default function SettingsScreen() {
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:600,color:'#F5F0E8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                  {emp.name}{emp.id==='emp-owner-001'&&<span style={{color:'#D4AF37',marginLeft:6,fontSize:11}}>★</span>}
+                  {emp.name}{emp.role==='owner'&&<span style={{color:'#D4AF37',marginLeft:6,fontSize:11}}>★</span>}
                 </div>
                 <div style={{fontSize:12,color:ROLE_COLORS[emp.role]||'#888',marginTop:1}}>
                   {ROLE_LABELS[emp.role]}{emp.pin&&PIN_ROLES.includes(emp.role)&&<span style={{color:'#555',marginLeft:8}}>PIN ••••</span>}
                 </div>
               </div>
-              {emp.id!=='emp-owner-001'&&(
-                <div style={{display:'flex',gap:6}}>
-                  <button style={{...S.btn,padding:'5px 10px',fontSize:13,...S.btnGhost}} onClick={()=>setEmpModal(emp)}>✎</button>
-                  <button style={{...S.btn,padding:'5px 10px',fontSize:13,...(emp.active?S.btnDanger:S.btnSuccess)}} onClick={()=>toggleEmpActive(emp)}>
-                    {emp.active?'✕':'↩'}
-                  </button>
-                </div>
-              )}
+              {(() => {
+                // Manager cannot edit an owner row; owner can edit anyone.
+                const isOwnerRow = emp.role === 'owner';
+                const canEdit = viewerIsOwner || !isOwnerRow;
+                if (!canEdit) {
+                  return (
+                    <div style={{fontSize:11,color:'#666',fontStyle:'italic',whiteSpace:'nowrap'}}>read-only</div>
+                  );
+                }
+                return (
+                  <div style={{display:'flex',gap:6}}>
+                    <button style={{...S.btn,padding:'5px 10px',fontSize:13,...S.btnGhost}} onClick={()=>setEmpModal(emp)}>✎</button>
+                    <button style={{...S.btn,padding:'5px 10px',fontSize:13,...(emp.active?S.btnDanger:S.btnSuccess)}} onClick={()=>toggleEmpActive(emp)}>
+                      {emp.active?'✕':'↩'}
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           ))}
           <button style={{...S.btn,...S.btnGold,width:'100%',marginTop:16}} onClick={()=>setEmpModal({})}>
@@ -405,20 +953,37 @@ export default function SettingsScreen() {
           <Field label="Owner Email Address" note="All automatic emails are sent here">
             <input style={S.input} type="email" value={settings.ownerEmail} onChange={e=>updateSetting('ownerEmail',e.target.value)} placeholder="owner@quezcoffeeco.com" />
           </Field>
+          <Field label="Additional Recipients" note="One per line. Reports are also sent to these addresses (bookkeeper, regional, etc).">
+            <textarea
+              style={{...S.input, minHeight: 70, fontFamily: 'inherit'}}
+              value={(settings.additionalEmails || []).join('\n')}
+              onChange={(e) => updateSetting('additionalEmails', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
+              placeholder={'bookkeeper@example.com\nregional@example.com'}
+              rows={3}
+            />
+          </Field>
           <div style={{...S.divider}} />
-          <div style={{fontSize:12,fontWeight:700,color:'#D4AF37',letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:14}}>EmailJS Credentials</div>
-          <Field label="Service ID">
-            <input style={S.input} value={settings.emailjs.serviceId} onChange={e=>updateSetting('emailjs.serviceId',e.target.value)} placeholder="service_xxxxxxx" autoCapitalize="off" autoCorrect="off" />
-          </Field>
-          <Field label="Template ID">
-            <input style={S.input} value={settings.emailjs.templateId} onChange={e=>updateSetting('emailjs.templateId',e.target.value)} placeholder="template_xxxxxxx" autoCapitalize="off" autoCorrect="off" />
-          </Field>
-          <Field label="Public Key" note="Find these at emailjs.com → Account → API Keys">
-            <input style={S.input} type="password" value={settings.emailjs.publicKey} onChange={e=>updateSetting('emailjs.publicKey',e.target.value)} placeholder="Public key" autoCapitalize="off" autoCorrect="off" />
-          </Field>
-          <button style={{...S.btn,...S.btnGhost,width:'100%',marginTop:4}} onClick={testEmail} disabled={emailTesting}>
-            {emailTesting ? 'Sending...' : 'Send Test Email'}
-          </button>
+          {viewerIsOwner ? (
+            <>
+              <div style={{fontSize:12,fontWeight:700,color:'#D4AF37',letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:14}}>EmailJS Credentials (Owner Only)</div>
+              <Field label="Service ID">
+                <input style={S.input} value={settings.emailjs.serviceId} onChange={e=>updateSetting('emailjs.serviceId',e.target.value)} placeholder="service_xxxxxxx" autoCapitalize="off" autoCorrect="off" />
+              </Field>
+              <Field label="Template ID">
+                <input style={S.input} value={settings.emailjs.templateId} onChange={e=>updateSetting('emailjs.templateId',e.target.value)} placeholder="template_xxxxxxx" autoCapitalize="off" autoCorrect="off" />
+              </Field>
+              <Field label="Public Key" note="Find these at emailjs.com → Account → API Keys">
+                <input style={S.input} type="password" value={settings.emailjs.publicKey} onChange={e=>updateSetting('emailjs.publicKey',e.target.value)} placeholder="Public key" autoCapitalize="off" autoCorrect="off" />
+              </Field>
+              <button style={{...S.btn,...S.btnGhost,width:'100%',marginTop:4}} onClick={testEmail} disabled={emailTesting}>
+                {emailTesting ? 'Sending...' : 'Send Test Email'}
+              </button>
+            </>
+          ) : (
+            <div style={{padding:'10px 12px',background:'rgba(212,175,55,0.06)',border:'1px solid rgba(212,175,55,0.25)',borderRadius:8,fontSize:12,color:'#aaa'}}>
+              EmailJS provider credentials are owner-managed and not editable from the Manager role.
+            </div>
+          )}
         </Section>
 
         {/* LOCATIONS */}
@@ -474,10 +1039,27 @@ export default function SettingsScreen() {
           </div>
         </Section>
 
+        {/* TODAY'S OPERATIONS — owner sets the daily business policy */}
+        {viewerIsOwner && (
+          <Section id="todayOps" icon="☕" title="Today's Operations" expanded={expanded==='todayOps'} onToggle={toggleSection}>
+            <TodayOpsEditor />
+          </Section>
+        )}
+
+        {/* DATA & BACKUP */}
+        <Section id="dataBackup" icon="💾" title="Data & Backup" expanded={expanded==='dataBackup'} onToggle={toggleSection}>
+          <DataBackupEditor viewerIsOwner={viewerIsOwner} />
+        </Section>
+
+        {/* PERIODIC SCHEDULE */}
+        <Section id="periodicDue" icon="📅" title="Periodic Checklist Schedule" expanded={expanded==='periodicDue'} onToggle={toggleSection}>
+          <PeriodicScheduleEditor />
+        </Section>
+
         {/* TRAINING BYPASS */}
         <Section id="training" icon="🎓" title="Training Settings" expanded={expanded==='training'} onToggle={toggleSection}>
           <div style={{...S.note,marginBottom:12}}>Bypass skips all training phases and immediately grants the assigned role.</div>
-          {employees.filter(e=>e.active&&e.id!=='emp-owner-001').map(emp=>(
+          {employees.filter(e=>e.active&&e.role!=='owner').map(emp=>(
             <div key={emp.id} style={S.row}>
               <div style={{width:30,height:30,borderRadius:'50%',background:'#2A2A2A',border:`1px solid ${ROLE_COLORS[emp.role]||'#888'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:ROLE_COLORS[emp.role]||'#888',flexShrink:0}}>
                 {emp.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
@@ -492,7 +1074,7 @@ export default function SettingsScreen() {
               </div>
             </div>
           ))}
-          {employees.filter(e=>e.active&&e.id!=='emp-owner-001').length===0&&(
+          {employees.filter(e=>e.active&&e.role!=='owner').length===0&&(
             <div style={{textAlign:'center',padding:'20px 0',color:'#555',fontSize:13}}>No other employees yet.</div>
           )}
         </Section>
@@ -515,18 +1097,27 @@ export default function SettingsScreen() {
                       <div style={{fontSize:12,color:'#666',marginTop:1}}>${drink.price12.toFixed(2)} / ${drink.price16.toFixed(2)}</div>
                     </div>
                     <div style={{display:'flex',gap:5,flexShrink:0}}>
+                      {/* Managers can 86/un-86 (operational), owner can edit pricing/delete (financial) */}
                       <button style={{...S.btn,...S.btnSm,...(drink.eightySix?S.btnSuccess:S.btnDanger)}} onClick={()=>toggle86(drink.id)}>
                         {drink.eightySix?'UN-86':'86'}
                       </button>
-                      <button style={{...S.btn,...S.btnGhost,...S.btnSm}} onClick={()=>setDrinkModal(drink)}>✎</button>
-                      <button style={{...S.btn,...S.btnDanger,...S.btnSm}} onClick={()=>removeDrink(drink)}>✕</button>
+                      {viewerIsOwner ? (
+                        <>
+                          <button style={{...S.btn,...S.btnGhost,...S.btnSm}} onClick={()=>setDrinkModal(drink)}>✎</button>
+                          <button style={{...S.btn,...S.btnDanger,...S.btnSm}} onClick={()=>removeDrink(drink)}>✕</button>
+                        </>
+                      ) : (
+                        <span style={{fontSize:10,color:'#666',padding:'4px 6px'}}>owner-only</span>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             );
           })}
-          <button style={{...S.btn,...S.btnGold,width:'100%',marginTop:8}} onClick={()=>setDrinkModal({})}>+ Add Drink</button>
+          {viewerIsOwner && (
+            <button style={{...S.btn,...S.btnGold,width:'100%',marginTop:8}} onClick={()=>setDrinkModal({})}>+ Add Drink</button>
+          )}
         </Section>
 
         {/* LANGUAGE */}

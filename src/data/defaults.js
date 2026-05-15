@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS = {
   employees: [
     {
       id: 'emp_ryan',
-      name: 'Ryan Rodriguez',
+      name: 'Ryan Rodriquez',
       role: 'owner',
       pin: '1943',       // Owner PIN — change in Settings after first login
       active: true,

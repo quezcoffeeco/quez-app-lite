@@ -1,18 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getSession, setSession, clearSession, initializeStorage, getSettings } from '../utils/storage';
-import { recordClockOut } from '../utils/storage';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { getSession, setSession, clearSession, initializeStorage, getSettings, requestPersistentStorage, maybeAutoBackup, getEmployees, pruneOldData } from '../utils/storage';
+import { recordClockOut, logAudit } from '../utils/storage';
+
+// Idle minutes before we lock the session and force PIN re-entry
+const IDLE_LOCK_MINUTES = 30;
  
 const AppContext = createContext(null);
  
 function homeScreenForRole(role) {
-  switch (role) {
-    case 'owner':       return 'ownerDashboard';
-    case 'manager':     return 'dailyChecklist';
-    case 'leadBarista': return 'dailyChecklist';
-    case 'barista':     return 'dailyChecklist';
-    case 'trainee':     return 'training';
-    default:            return 'dailyChecklist';
-  }
+  // All roles land on the role-aware Dashboard.
+  return 'dashboard';
 }
  
 // ── Logout Popup — lives at provider level, never unmounted ──
@@ -88,42 +85,111 @@ const LogoutPopup = ({ session, onSignOutOnly, onClockOutAndSignOut, onCancel })
 export function AppProvider({ children }) {
   const [session, setSessionState] = useState(null);
   const [currentScreen, setCurrentScreen] = useState('login');
+  const [history, setHistory] = useState([]); // stack of previously visited screens for back navigation
   const [language, setLanguage] = useState('en');
   const [isReady, setIsReady] = useState(false);
   const [showLogoutPopup, setShowLogoutPopup] = useState(false);
- 
+
   useEffect(() => {
     initializeStorage();
     const settings = getSettings();
     setLanguage(settings.language || 'en');
     const saved = getSession();
     if (saved) {
-      setSessionState(saved);
-      setCurrentScreen(homeScreenForRole(saved.role));
+      // Refresh session against current employee record — catches role upgrades
+      // (e.g. trainee → barista was approved while logged in) and name edits.
+      const freshEmp = getEmployees().find((e) => e.id === saved.id);
+      const refreshed = freshEmp
+        ? { ...saved, role: freshEmp.role, name: freshEmp.name }
+        : saved;
+      if (freshEmp && (freshEmp.role !== saved.role || freshEmp.name !== saved.name)) {
+        setSession(refreshed);
+      }
+      setSessionState(refreshed);
+      setCurrentScreen(homeScreenForRole(refreshed.role));
+      setHistory([]);
     }
     setIsReady(true);
+    // Ask the browser to protect our localStorage from eviction. Silent on Chrome,
+    // may prompt on Safari/Firefox. Either way, fire once on boot.
+    requestPersistentStorage().catch(() => {});
+    // Daily housekeeping pass — collapses old per-day keys into monthly
+    // rollups, drops past-retention rows. Runs at most once per calendar day.
+    // Has to fire BEFORE the auto-backup so the email bundle stays small.
+    try { pruneOldData(); } catch (e) { console.warn('Prune failed:', e); }
+    // Auto-backup check — silently fires if we're past the cadence threshold.
+    maybeAutoBackup('boot').catch(() => {});
   }, []);
- 
+
   const login = useCallback((employeeData) => {
     setSession(employeeData);
     setSessionState(employeeData);
     setCurrentScreen(homeScreenForRole(employeeData.role));
+    setHistory([]);
   }, []);
- 
+
   // Actual logout — clears session and navigates to login
   const doLogout = useCallback(() => {
     clearSession();
     setSessionState(null);
     setCurrentScreen('login');
+    setHistory([]);
     setShowLogoutPopup(false);
   }, []);
- 
+
   // Called by nav button — shows popup instead of logging out immediately
   const logout = useCallback(() => {
     setShowLogoutPopup(true);
   }, []);
- 
-  const navigate = useCallback((screen) => setCurrentScreen(screen), []);
+
+  // navigate(): top-level tab switch — clears history
+  const navigate = useCallback((screen) => {
+    setHistory([]);
+    setCurrentScreen(screen);
+  }, []);
+
+  // push(): drill into a sub-screen — remembers where we came from
+  const push = useCallback((screen) => {
+    setHistory((prev) => [...prev, currentScreen]);
+    setCurrentScreen(screen);
+  }, [currentScreen]);
+
+  // goBack(): pop the history stack
+  const goBack = useCallback(() => {
+    setHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      const target = next.pop();
+      setCurrentScreen(target);
+      return next;
+    });
+  }, []);
+
+  const canGoBack = history.length > 0;
+
+  // ── Idle / session timeout ──────────────────────────────────
+  const lastActivityRef = useRef(Date.now());
+  const bumpActivity = useCallback(() => { lastActivityRef.current = Date.now(); }, []);
+
+  useEffect(() => {
+    if (!session) return undefined;
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((e) => window.addEventListener(e, bumpActivity, { passive: true }));
+    const tick = setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (idleMs > IDLE_LOCK_MINUTES * 60 * 1000) {
+        logAudit('session_lock', { employeeName: session.name, reason: 'idle' });
+        clearSession();
+        setSessionState(null);
+        setCurrentScreen('login');
+        setHistory([]);
+      }
+    }, 30 * 1000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, bumpActivity));
+      clearInterval(tick);
+    };
+  }, [session, bumpActivity]);
  
   // ── Popup handlers ────────────────────────────────────────
   const handleSignOutOnly = useCallback(() => {
@@ -151,8 +217,10 @@ export function AppProvider({ children }) {
  
   return (
     <AppContext.Provider value={{
-      session, currentScreen, language, setLanguage,
-      login, logout, navigate, isReady,
+      session,
+      currentUser: session,
+      currentScreen, language, setLanguage,
+      login, logout, navigate, push, goBack, canGoBack, isReady,
     }}>
       {children}
  

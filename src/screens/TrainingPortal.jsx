@@ -1,832 +1,1591 @@
-// ============================================================
-// QUEZ APP LITE — TrainingPortal.jsx
-// Session 7: Phase 1 Content + 15-Question Quiz
-// Phase 2 & 3 stubs ready for Session 8
-// ============================================================
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
+import { phase1Sections, phase1Quiz, phase2SkillGroups, phase3Drinks, phase3Standards } from '../data/trainingContent';
 import {
   getTrainingRecord,
   markPhase1Complete,
+  markPhase2Complete,
+  markPhase3Complete,
   setQuizLockout,
   getQuizLockoutInfo,
-  applyTrainingBypassIfEnabled,
+  savePhase2Progress,
+  loadPhase2Progress,
+  clearPhase2Progress,
+  savePhase3Progress,
+  loadPhase3Progress,
+  clearPhase3Progress,
 } from '../utils/storage';
-import { getEmployees } from '../utils/storage';
 import { sendQuezEmail } from '../utils/emailjs';
-import { PHASE1_SECTIONS, QUIZ_QUESTIONS } from '../data/trainingContent';
 
-// ── Shuffle helper ─────────────────────────────────────────
-function shuffleArray(arr) {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return copy;
+  return a;
 }
 
-// ── Styles ─────────────────────────────────────────────────
-const S = {
-  screen: {
-    display: 'flex', flexDirection: 'column', height: '100%',
-    background: '#0D0D0D', overflow: 'hidden',
-  },
-  header: {
-    padding: '18px 20px 14px',
-    borderBottom: '1px solid rgba(212,175,55,0.2)',
-    background: '#0D0D0D',
-    flexShrink: 0,
-  },
-  headerTop: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  },
-  headerTitle: {
-    fontFamily: 'Georgia, serif', fontSize: 22, color: '#D4AF37',
-    letterSpacing: '0.02em',
-  },
-  headerSub: {
-    fontSize: 11, color: '#666', marginTop: 3,
-    letterSpacing: '0.08em', textTransform: 'uppercase',
-  },
-  body: {
-    flex: 1, overflowY: 'auto', padding: '16px 16px 40px',
-    WebkitOverflowScrolling: 'touch',
-  },
+// Shuffle each question's answer options independently. Keeps en/es option
+// lists aligned and updates correctIndex so the right answer can land at any position.
+function shuffleQuestionOptions(questions) {
+  return questions.map((q) => {
+    const n = q.options.en.length;
+    const order = shuffle(Array.from({ length: n }, (_, i) => i));
+    return {
+      ...q,
+      options: {
+        en: order.map((i) => q.options.en[i]),
+        es: order.map((i) => q.options.es[i]),
+      },
+      correctIndex: order.indexOf(q.correctIndex),
+    };
+  });
+}
 
-  // Phase progress bar
-  phaseBar: {
-    display: 'flex', gap: 8, padding: '14px 16px 12px',
-    background: '#0D0D0D', borderBottom: '1px solid rgba(212,175,55,0.1)',
-    flexShrink: 0,
-  },
-  phaseStep: (active, done) => ({
-    flex: 1, padding: '10px 6px', borderRadius: 10, textAlign: 'center',
-    background: done ? 'rgba(212,175,55,0.15)' : active ? '#1A1A1A' : 'transparent',
-    border: done ? '1px solid rgba(212,175,55,0.5)' : active ? '1px solid rgba(212,175,55,0.4)' : '1px solid rgba(255,255,255,0.07)',
-    transition: 'all 0.2s',
-    cursor: active || done ? 'pointer' : 'default',
-  }),
-  phaseStepNum: (active, done) => ({
-    fontSize: 18, display: 'block', marginBottom: 2,
-    filter: done ? 'none' : active ? 'none' : 'grayscale(1) opacity(0.4)',
-  }),
-  phaseStepLabel: (active, done) => ({
-    fontSize: 10, letterSpacing: '0.07em', textTransform: 'uppercase',
-    color: done ? '#D4AF37' : active ? '#F5F0E8' : '#444',
-    fontWeight: done || active ? 700 : 400,
-  }),
-  phaseStepStatus: (active, done) => ({
-    fontSize: 9, color: done ? '#7BB37B' : active ? '#D4AF37' : '#333',
-    marginTop: 1, textTransform: 'uppercase', letterSpacing: '0.05em',
-  }),
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
-  // Section cards
-  sectionCard: {
-    background: '#1A1A1A', border: '1px solid rgba(212,175,55,0.12)',
-    borderRadius: 14, marginBottom: 10, overflow: 'hidden',
-  },
-  sectionBtn: {
-    width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
-    textAlign: 'left',
-  },
-  sectionIcon: { fontSize: 20, flexShrink: 0 },
-  sectionTitle: {
-    flex: 1, fontFamily: 'Georgia, serif', fontSize: 15, color: '#F5F0E8',
-  },
-  urgentBadge: {
-    fontSize: 9, fontWeight: 800, letterSpacing: '0.07em',
-    textTransform: 'uppercase', color: '#C84B4B',
-    background: 'rgba(200,75,75,0.12)', border: '1px solid rgba(200,75,75,0.3)',
-    borderRadius: 4, padding: '2px 6px',
-  },
-  sectionBody: { padding: '4px 16px 20px' },
-  contentBlock: {
-    marginBottom: 18, paddingBottom: 18,
-    borderBottom: '1px solid rgba(212,175,55,0.08)',
-  },
-  contentHeading: {
-    fontFamily: 'Georgia, serif', fontSize: 14, color: '#D4AF37',
-    marginBottom: 8, letterSpacing: '0.02em',
-  },
-  contentBody: {
-    fontSize: 14, lineHeight: 1.7, color: '#C8C0B0',
-  },
+// ─────────────────────────────────────────────────────────────────────────────
+// TRAINER COUNTERSIGN MODAL
+// Appears when a trainer needs to confirm a skill or mark phase complete
+// Trainer selects their name and enters their PIN (Owner/Manager only can countersign)
+// ─────────────────────────────────────────────────────────────────────────────
+function TrainerCountersignModal({ lang, onConfirm, onCancel, title, description }) {
+  const { employees } = useApp();
+  const [trainerName, setTrainerName] = useState('');
+  const [trainerPin, setTrainerPin] = useState('');
+  const [error, setError] = useState('');
 
-  // Quiz
-  quizWrap: { padding: '0 0 20px' },
-  quizHeader: {
-    background: '#1A1A1A', border: '1px solid rgba(212,175,55,0.2)',
-    borderRadius: 14, padding: '18px 16px', marginBottom: 16,
-  },
-  quizTitle: {
-    fontFamily: 'Georgia, serif', fontSize: 18, color: '#D4AF37',
-    marginBottom: 6,
-  },
-  quizMeta: { fontSize: 13, color: '#888', lineHeight: 1.5 },
-  quizProgress: {
-    display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 0',
-  },
-  quizProgressBar: {
-    flex: 1, height: 4, background: '#2A2A2A', borderRadius: 2, overflow: 'hidden',
-  },
-  quizProgressFill: (pct) => ({
-    height: '100%', width: `${pct}%`,
-    background: 'linear-gradient(90deg, #D4AF37, #F0CC60)',
-    transition: 'width 0.3s ease', borderRadius: 2,
-  }),
-
-  // Question card
-  questionCard: {
-    background: '#1A1A1A', border: '1px solid rgba(212,175,55,0.15)',
-    borderRadius: 14, padding: '18px 16px', marginBottom: 12,
-  },
-  questionNum: {
-    fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-    textTransform: 'uppercase', color: '#D4AF37', marginBottom: 8,
-  },
-  questionText: {
-    fontFamily: 'Georgia, serif', fontSize: 15, color: '#F5F0E8',
-    lineHeight: 1.5, marginBottom: 16,
-  },
-  optionBtn: (state) => ({
-    width: '100%', display: 'block', textAlign: 'left',
-    padding: '12px 14px', marginBottom: 8, borderRadius: 10,
-    border: state === 'correct' ? '1.5px solid #7BB37B' :
-            state === 'wrong' ? '1.5px solid #C84B4B' :
-            state === 'selected' ? '1.5px solid #D4AF37' :
-            '1px solid rgba(255,255,255,0.08)',
-    background: state === 'correct' ? 'rgba(123,179,123,0.1)' :
-                state === 'wrong' ? 'rgba(200,75,75,0.1)' :
-                state === 'selected' ? 'rgba(212,175,55,0.08)' : '#2A2A2A',
-    color: state === 'correct' ? '#7BB37B' :
-           state === 'wrong' ? '#C84B4B' :
-           state === 'selected' ? '#D4AF37' : '#C8C0B0',
-    fontSize: 14, lineHeight: 1.4, cursor: 'pointer',
-    fontFamily: 'inherit', transition: 'all 0.15s',
-  }),
-
-  // Results
-  resultCard: (passed) => ({
-    background: passed ? 'rgba(123,179,123,0.07)' : 'rgba(200,75,75,0.07)',
-    border: `1.5px solid ${passed ? '#7BB37B' : '#C84B4B'}`,
-    borderRadius: 16, padding: '24px 20px', marginBottom: 16, textAlign: 'center',
-  }),
-  resultIcon: { fontSize: 48, display: 'block', marginBottom: 12 },
-  resultTitle: (passed) => ({
-    fontFamily: 'Georgia, serif', fontSize: 22,
-    color: passed ? '#7BB37B' : '#C84B4B', marginBottom: 8,
-  }),
-  resultScore: {
-    fontFamily: 'Georgia, serif', fontSize: 36, color: '#D4AF37',
-    marginBottom: 4,
-  },
-  resultSub: { fontSize: 13, color: '#888', lineHeight: 1.5 },
-  wrongAnswerCard: {
-    background: '#1A1A1A', border: '1px solid rgba(200,75,75,0.25)',
-    borderRadius: 12, padding: '14px 14px', marginBottom: 8,
-  },
-  wrongQ: { fontSize: 13, color: '#F5F0E8', marginBottom: 6, lineHeight: 1.4 },
-  wrongCorrect: { fontSize: 12, color: '#7BB37B', lineHeight: 1.4 },
-
-  // Buttons
-  btn: {
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    border: 'none', borderRadius: 10, fontFamily: 'Georgia, serif',
-    fontSize: 14, letterSpacing: '0.04em', cursor: 'pointer',
-    padding: '14px 20px', textTransform: 'uppercase', transition: 'all 0.15s',
-  },
-  btnGold: { background: '#D4AF37', color: '#0D0D0D', fontWeight: 700 },
-  btnGhost: {
-    background: 'transparent', border: '1px solid rgba(212,175,55,0.3)',
-    color: '#F5F0E8',
-  },
-  btnBlock: { width: '100%', marginTop: 12 },
-
-  // Locked / bypass / complete states
-  lockedBox: {
-    background: '#1A1A1A', border: '1px solid rgba(200,75,75,0.3)',
-    borderRadius: 14, padding: '20px 16px', textAlign: 'center',
-  },
-  completeBox: {
-    background: 'rgba(123,179,123,0.07)', border: '1px solid rgba(123,179,123,0.3)',
-    borderRadius: 14, padding: '20px 16px', textAlign: 'center',
-    marginBottom: 12,
-  },
-  bypassBox: {
-    background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.25)',
-    borderRadius: 14, padding: '20px 16px', textAlign: 'center',
-    marginBottom: 12,
-  },
-  stubBox: {
-    background: '#111', border: '1px solid rgba(255,255,255,0.07)',
-    borderRadius: 14, padding: '24px 16px', textAlign: 'center',
-  },
-};
-
-// ── Phase Step Component ───────────────────────────────────
-function PhaseStep({ num, emoji, label, status, active, done, onClick }) {
-  return (
-    <div style={S.phaseStep(active, done)} onClick={onClick}>
-      <span style={S.phaseStepNum(active, done)}>{emoji}</span>
-      <span style={S.phaseStepLabel(active, done)}>Phase {num}</span>
-      <div style={S.phaseStepStatus(active, done)}>{status}</div>
-    </div>
+  const eligibleTrainers = (employees || []).filter(
+    (e) => e.active !== false && (e.role === 'owner' || e.role === 'manager' || e.role === 'leadBarista')
   );
-}
 
-// ── Content Section ────────────────────────────────────────
-function ContentSection({ section, lang, defaultOpen }) {
-  const [open, setOpen] = useState(defaultOpen || false);
+  const handleConfirm = () => {
+    if (!trainerName) {
+      setError(lang === 'es' ? 'Selecciona un entrenador.' : 'Select a trainer.');
+      return;
+    }
+    const trainer = eligibleTrainers.find((e) => e.name === trainerName);
+    // Owner and Manager require PIN; Lead Barista does not
+    if (trainer && (trainer.role === 'owner' || trainer.role === 'manager')) {
+      if (!trainerPin) {
+        setError(lang === 'es' ? 'Se requiere PIN para este rol.' : 'PIN required for this role.');
+        return;
+      }
+      if (trainer.pin !== trainerPin) {
+        setError(lang === 'es' ? 'PIN incorrecto.' : 'Incorrect PIN.');
+        return;
+      }
+    }
+    onConfirm(trainerName);
+  };
+
   return (
-    <div style={S.sectionCard}>
-      <button style={S.sectionBtn} onClick={() => setOpen(o => !o)} type="button">
-        <span style={S.sectionIcon}>{section.icon}</span>
-        <span style={S.sectionTitle}>{section.title[lang]}</span>
-        {section.urgent && <span style={S.urgentBadge}>Required</span>}
-        <span style={{ color: '#555', fontSize: 18 }}>{open ? '−' : '+'}</span>
-      </button>
-      {open && (
-        <div style={S.sectionBody}>
-          {section.content.map((block, i) => (
-            <div key={i} style={{
-              ...S.contentBlock,
-              ...(i === section.content.length - 1 ? { borderBottom: 'none', marginBottom: 0, paddingBottom: 0 } : {}),
-            }}>
-              <div style={S.contentHeading}>{block.heading[lang]}</div>
-              <div style={S.contentBody}>{block.body[lang]}</div>
-            </div>
-          ))}
+    <div style={styles.modalOverlay}>
+      <div style={styles.modal}>
+        <div style={styles.modalHeader}>
+          <span style={styles.goldText}>✦</span>
+          <h3 style={styles.modalTitle}>{title}</h3>
         </div>
-      )}
+        {description && <p style={styles.modalDesc}>{description}</p>}
+
+        <div style={styles.formGroup}>
+          <label style={styles.label}>
+            {lang === 'es' ? 'Nombre del Entrenador' : 'Trainer Name'}
+          </label>
+          <select
+            style={styles.select}
+            value={trainerName}
+            onChange={(e) => { setTrainerName(e.target.value); setError(''); setTrainerPin(''); }}
+          >
+            <option value="">{lang === 'es' ? '— Seleccionar —' : '— Select —'}</option>
+            {eligibleTrainers.map((e) => (
+              <option key={e.id} value={e.name}>{e.name} ({e.role})</option>
+            ))}
+          </select>
+        </div>
+
+        {trainerName && (() => {
+          const trainer = eligibleTrainers.find((e) => e.name === trainerName);
+          return trainer && (trainer.role === 'owner' || trainer.role === 'manager') ? (
+            <div style={styles.formGroup}>
+              <label style={styles.label}>PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                style={styles.input}
+                value={trainerPin}
+                onChange={(e) => { setTrainerPin(e.target.value); setError(''); }}
+                placeholder="••••"
+              />
+            </div>
+          ) : null;
+        })()}
+
+        {error && <p style={styles.errorText}>{error}</p>}
+
+        <div style={styles.modalActions}>
+          <button style={styles.btnSecondary} onClick={onCancel}>
+            {lang === 'es' ? 'Cancelar' : 'Cancel'}
+          </button>
+          <button style={styles.btnGold} onClick={handleConfirm}>
+            {lang === 'es' ? 'Confirmar' : 'Confirm'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ── Quiz Engine ────────────────────────────────────────────
-function Quiz({ employeeId, lang, onPassed, onFailed }) {
-  const [shuffledQ, setShuffledQ] = useState([]);
-  const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState({}); // { qId: selectedIndex }
-  const [revealed, setRevealed] = useState({}); // { qId: true } after selecting
-  const [phase, setPhase] = useState('questions'); // 'questions' | 'results'
-  const [results, setResults] = useState(null);
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+export default function TrainingPortal() {
+  const { currentUser, language } = useApp();
+  const lang = language || 'en';
+
+  // Phase navigation: 'phase1' | 'phase2' | 'phase3'
+  const [activePhase, setActivePhase] = useState('phase1');
+
+  // Training record for the current trainee
+  const [record, setRecord] = useState(null);
+
+  // ── Phase 1 state
+  const [p1Tab, setP1Tab] = useState('study'); // 'study' | 'quiz'
+  const [expandedSections, setExpandedSections] = useState({});
+  const [quizQuestions, setQuizQuestions] = useState([]);
+  const [currentQ, setCurrentQ] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [quizAnswers, setQuizAnswers] = useState([]); // { questionId, selectedIndex, correct }
+  const [quizDone, setQuizDone] = useState(false);
+  const [lockoutInfo, setLockoutInfo] = useState({ isLocked: false });
+
+  // ── Phase 2 state
+  const [signedSkills, setSignedSkills] = useState(new Set());
+  const [countersignModal, setCountersignModal] = useState(null);
+  // countersignModal: { type: 'skill'|'phase2complete'|'phase3complete', skillId, trainerCallback }
+
+  // ── Phase 3 state
+  const [signedDrinks, setSignedDrinks] = useState(new Set());
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOAD TRAINING RECORD
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadRecord = useCallback(() => {
+    if (!currentUser) return;
+    const r = getTrainingRecord(currentUser.id);
+    setRecord(r);
+
+    // Load saved Phase 2 progress
+    const p2progress = loadPhase2Progress(currentUser.id);
+    setSignedSkills(new Set(p2progress.signedSkillIds || []));
+
+    // Load saved Phase 3 progress
+    const p3progress = loadPhase3Progress(currentUser.id);
+    setSignedDrinks(new Set(p3progress.signedDrinkIds || []));
+
+    // Check quiz lockout
+    const lockout = getQuizLockoutInfo(currentUser.id);
+    setLockoutInfo(lockout);
+  }, [currentUser]);
 
   useEffect(() => {
-    setShuffledQ(shuffleArray(QUIZ_QUESTIONS));
+    loadRecord();
+  }, [loadRecord]);
+
+  // Randomize quiz on mount (once) — shuffle both question order AND answer options
+  useEffect(() => {
+    setQuizQuestions(shuffleQuestionOptions(shuffle(phase1Quiz)));
   }, []);
 
-  function handleSelect(qId, optionIdx) {
-    if (revealed[qId]) return; // already answered
-    setAnswers(prev => ({ ...prev, [qId]: optionIdx }));
-    setRevealed(prev => ({ ...prev, [qId]: true }));
-  }
-
-  function handleNext() {
-    if (current < shuffledQ.length - 1) {
-      setCurrent(c => c + 1);
-    } else {
-      submitQuiz();
-    }
-  }
-
-  function submitQuiz() {
-    let correct = 0;
-    const wrong = [];
-    shuffledQ.forEach(q => {
-      if (answers[q.id] === q.correctIndex) {
-        correct++;
-      } else {
-        wrong.push(q);
-      }
-    });
-    const score = correct;
-    const total = shuffledQ.length;
-    const pct = Math.round((score / total) * 100);
-    const passed = pct >= 80;
-    setResults({ score, total, pct, passed, wrong });
-    setPhase('results');
-    if (passed) {
-      onPassed();
-    } else {
-      onFailed();
-    }
-  }
-
-  if (!shuffledQ.length) return null;
-
-  if (phase === 'results' && results) {
-    return (
-      <div style={S.quizWrap}>
-        <div style={S.resultCard(results.passed)}>
-          <span style={S.resultIcon}>{results.passed ? '🎖️' : '📚'}</span>
-          <div style={S.resultTitle(results.passed)}>
-            {results.passed
-              ? (lang === 'es' ? '¡Aprobado!' : 'Quiz Passed!')
-              : (lang === 'es' ? 'No Aprobado' : 'Not Passed')}
-          </div>
-          <div style={S.resultScore}>{results.score}/{results.total}</div>
-          <div style={S.resultSub}>
-            {results.pct}% — {lang === 'es' ? 'Se requiere 80% para aprobar' : '80% required to pass'}
-          </div>
-          {!results.passed && (
-            <div style={{ fontSize: 12, color: '#C84B4B', marginTop: 8 }}>
-              {lang === 'es'
-                ? 'Reintento disponible en 24 horas. Revisa el material de Phase 1.'
-                : 'Retry available in 24 hours. Review the Phase 1 material.'}
-            </div>
-          )}
-        </div>
-
-        {!results.passed && results.wrong.length > 0 && (
-          <div>
-            <div style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-              textTransform: 'uppercase', color: '#888', marginBottom: 12,
-            }}>
-              {lang === 'es' ? 'Respuestas Incorrectas' : 'Incorrect Answers'}
-            </div>
-            {results.wrong.map(q => (
-              <div key={q.id} style={S.wrongAnswerCard}>
-                <div style={S.wrongQ}>
-                  ✗ {q.question[lang]}
-                </div>
-                <div style={S.wrongCorrect}>
-                  ✓ {q.explanation[lang]}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Questions phase
-  const q = shuffledQ[current];
-  const answered = revealed[q.id];
-  const selected = answers[q.id];
-  const pct = Math.round((current / shuffledQ.length) * 100);
-
-  function getOptionState(idx) {
-    if (!answered) return 'default';
-    if (idx === q.correctIndex) return 'correct';
-    if (idx === selected && idx !== q.correctIndex) return 'wrong';
-    return 'default';
-  }
-
-  return (
-    <div style={S.quizWrap}>
-      <div style={S.quizHeader}>
-        <div style={S.quizTitle}>
-          {lang === 'es' ? 'Examen — Fase 1' : 'Phase 1 Quiz'}
-        </div>
-        <div style={S.quizMeta}>
-          {lang === 'es'
-            ? '15 preguntas · 80% para aprobar · Reintento en 24 horas si no apruebas'
-            : '15 questions · 80% to pass · 24-hour retry lockout if you don\'t pass'}
-        </div>
-        <div style={S.quizProgress}>
-          <div style={S.quizProgressBar}>
-            <div style={S.quizProgressFill(pct)} />
-          </div>
-          <span style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
-            {current + 1}/{shuffledQ.length}
-          </span>
-        </div>
-      </div>
-
-      <div style={S.questionCard}>
-        <div style={S.questionNum}>
-          {lang === 'es' ? `Pregunta ${current + 1}` : `Question ${current + 1}`}
-        </div>
-        <div style={S.questionText}>{q.question[lang]}</div>
-
-        {q.options[lang].map((opt, idx) => (
-          <button
-            key={idx}
-            style={S.optionBtn(getOptionState(idx))}
-            onClick={() => handleSelect(q.id, idx)}
-            type="button"
-          >
-            <span style={{ opacity: 0.5, marginRight: 8 }}>
-              {['A', 'B', 'C', 'D'][idx]}.
-            </span>
-            {opt}
-          </button>
-        ))}
-
-        {answered && (
-          <div style={{
-            marginTop: 8, padding: '10px 12px', borderRadius: 8,
-            background: selected === q.correctIndex
-              ? 'rgba(123,179,123,0.08)' : 'rgba(200,75,75,0.08)',
-            fontSize: 12, lineHeight: 1.5,
-            color: selected === q.correctIndex ? '#7BB37B' : '#C84B4B',
-          }}>
-            {q.explanation[lang]}
-          </div>
-        )}
-      </div>
-
-      {answered && (
-        <button
-          style={{ ...S.btn, ...S.btnGold, ...S.btnBlock }}
-          onClick={handleNext}
-          type="button"
-        >
-          {current < shuffledQ.length - 1
-            ? (lang === 'es' ? 'Siguiente Pregunta →' : 'Next Question →')
-            : (lang === 'es' ? 'Ver Resultados' : 'See Results')}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ── Main Portal ────────────────────────────────────────────
-export default function TrainingPortal() {
-  const { session, language } = useApp();
-  const lang = language || 'en';
-  const [activeTab, setActiveTab] = useState('content'); // 'content' | 'quiz'
-  const [activePhase, setActivePhase] = useState(1);
-  const [trainingRecord, setTrainingRecord] = useState(null);
-  const [lockoutInfo, setLockoutInfo] = useState({ isLocked: false });
-  const [quizKey, setQuizKey] = useState(0); // force quiz remount on retry
-  const [phase1JustPassed, setPhase1JustPassed] = useState(false);
-  const employee = useCallback(() => {
-    if (!session) return null;
-    const emps = getEmployees();
-    return emps.find(e => e.id === session.id) || null;
-  }, [session]);
-
-  // Load and refresh training state
-  const refreshState = useCallback(() => {
-    if (!session) return;
-    const emp = employee();
-    if (emp) applyTrainingBypassIfEnabled(emp);
-    const record = getTrainingRecord(session.id);
-    setTrainingRecord(record);
-    setLockoutInfo(getQuizLockoutInfo(session.id));
-  }, [session, employee]);
-
+  // Poll lockout countdown every minute
   useEffect(() => {
-    refreshState();
-  }, [refreshState]);
+    if (!lockoutInfo.isLocked) return;
+    const interval = setInterval(() => {
+      const updated = getQuizLockoutInfo(currentUser?.id);
+      setLockoutInfo(updated);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [lockoutInfo.isLocked, currentUser]);
 
-  if (!session || !trainingRecord) return null;
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE 1 — QUIZ LOGIC
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleSelectAnswer = (index) => {
+    if (showFeedback) return;
+    setSelectedAnswer(index);
+    setShowFeedback(true);
+    const q = quizQuestions[currentQ];
+    const correct = index === q.correctIndex;
+    setQuizAnswers((prev) => [...prev, { questionId: q.id, selectedIndex: index, correct }]);
+  };
 
-  const emp = employee();
-  const isBypassed = emp?.trainingBypass === true;
-  const phase1Done = trainingRecord.phase1.passed;
-  const phase2Done = trainingRecord.phase2.passed;
-  const phase3Done = trainingRecord.phase3.passed;
-  const allDone = phase1Done && phase2Done && phase3Done;
+  const handleNextQuestion = () => {
+    if (currentQ < quizQuestions.length - 1) {
+      setCurrentQ((prev) => prev + 1);
+      setSelectedAnswer(null);
+      setShowFeedback(false);
+    } else {
+      setQuizDone(true);
+    }
+  };
 
-  // Send owner notification email when phase 1 passes
-  function handleQuizPassed() {
-    markPhase1Complete(session.id);
-    setPhase1JustPassed(true);
-    sendQuezEmail({
-      subject: `[Quez Training] Phase 1 Complete — ${session.name}`,
+  const handleQuizPassed = useCallback(async () => {
+    if (!currentUser) return;
+    markPhase1Complete(currentUser.id);
+    loadRecord();
+    // Email owner
+    await sendQuezEmail({
+      subject: `[Quez Training] Phase 1 Complete — ${currentUser.name}`,
       templateParams: {
-        event_type: 'Training Phase 1 Complete',
-        employee_name: session.name,
-        location: session.location || 'Council Bluffs — Main',
-        date: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        message: `TRAINING PHASE 1 COMPLETE\n═══════════════════════════════\nEmployee: ${session.name}\nRole: ${session.role}\nDate: ${new Date().toLocaleDateString('en-US')}\nResult: Phase 1 Quiz PASSED\n\nThis employee is ready to begin Phase 2 supervised equipment training.\n═══════════════════════════════\nQuez Coffee Co. — Auto-Generated`,
+        to_name: 'Owner',
+        subject: `[Quez Training] Phase 1 Complete — ${currentUser.name}`,
+        message: `Phase 1 training complete.\n\nEmployee: ${currentUser.name}\nRole: ${currentUser.role}\nDate: ${new Date().toLocaleDateString()}\nResult: PASSED (quiz score ≥ 80%)\n\nNext step: Phase 2 — Supervised Hands-On Training.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa`,
       },
     });
-    refreshState();
-  }
+  }, [currentUser, loadRecord]);
 
-  function handleQuizFailed() {
-    setQuizLockout(session.id);
-    refreshState();
-  }
+  const handleQuizFailed = useCallback(() => {
+    if (!currentUser) return;
+    setQuizLockout(currentUser.id);
+    loadRecord();
+    const lockout = getQuizLockoutInfo(currentUser.id);
+    setLockoutInfo(lockout);
+  }, [currentUser, loadRecord]);
 
-  // ── Render Phase 1 content ─────────────────────────────
-  function renderPhase1() {
-    if (isBypassed && !phase1Done) {
-      // shouldn't happen since bypass applies on mount, but safety fallback
-      return (
-        <div style={S.bypassBox}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>⚡</div>
-          <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#D4AF37', marginBottom: 6 }}>
-            {lang === 'es' ? 'Entrenamiento Omitido' : 'Training Bypassed'}
+  useEffect(() => {
+    if (!quizDone || !currentUser) return;
+    const correctCount = quizAnswers.filter((a) => a.correct).length;
+    const passed = correctCount >= 12;
+    if (passed) {
+      handleQuizPassed();
+    } else {
+      handleQuizFailed();
+    }
+  }, [quizDone]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRetakeQuiz = () => {
+    setQuizQuestions(shuffleQuestionOptions(shuffle(phase1Quiz)));
+    setCurrentQ(0);
+    setSelectedAnswer(null);
+    setShowFeedback(false);
+    setQuizAnswers([]);
+    setQuizDone(false);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE 2 — SKILL SIGN-OFF LOGIC
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleUnsignSkill = (skillId) => {
+    const updated = new Set(signedSkills);
+    updated.delete(skillId);
+    setSignedSkills(updated);
+    savePhase2Progress(currentUser.id, [...updated]);
+  };
+
+  const handlePhase2Complete = () => {
+    setCountersignModal({
+      type: 'phase2complete',
+      title: lang === 'es' ? 'Completar Fase 2' : 'Complete Phase 2',
+      description:
+        lang === 'es'
+          ? 'El entrenador confirma que todas las habilidades de la Fase 2 han sido demostradas correctamente. Esta acción no se puede deshacer.'
+          : 'Trainer confirms all Phase 2 skills have been demonstrated correctly. This cannot be undone.',
+    });
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE 2 + PHASE 3 — UNIFIED COUNTERSIGN HANDLER
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleCountersignConfirmUnified = async (trainerName) => {
+    const modal = countersignModal;
+    setCountersignModal(null);
+
+    if (modal.type === 'skill' && modal.skillId) {
+      // Phase 2 skill sign-off
+      const updated = new Set(signedSkills);
+      updated.add(modal.skillId);
+      setSignedSkills(updated);
+      savePhase2Progress(currentUser.id, [...updated]);
+
+    } else if (modal.type === 'skill' && modal.drinkId) {
+      // Phase 3 drink sign-off
+      const updated = new Set(signedDrinks);
+      updated.add(modal.drinkId);
+      setSignedDrinks(updated);
+      savePhase3Progress(currentUser.id, [...updated]);
+
+    } else if (modal.type === 'phase2complete') {
+      markPhase2Complete(currentUser.id, trainerName);
+      clearPhase2Progress(currentUser.id);
+      loadRecord();
+      await sendQuezEmail({
+        subject: `[Quez Training] Phase 2 Complete — ${currentUser.name}`,
+        templateParams: {
+          to_name: 'Owner',
+          subject: `[Quez Training] Phase 2 Complete — ${currentUser.name}`,
+          message: `Phase 2 training complete.\n\nEmployee: ${currentUser.name}\nRole: ${currentUser.role}\nDate: ${new Date().toLocaleDateString()}\nTrainer: ${trainerName}\nResult: All hands-on skills confirmed\n\nNext step: Phase 3 — Drink Proficiency.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa`,
+        },
+      });
+
+    } else if (modal.type === 'phase3complete') {
+      markPhase3Complete(currentUser.id, trainerName);
+      clearPhase3Progress(currentUser.id);
+      loadRecord();
+      await sendQuezEmail({
+        subject: `[Quez Training] Phase 3 Complete — ${currentUser.name}`,
+        templateParams: {
+          to_name: 'Owner',
+          subject: `[Quez Training] Phase 3 Complete — ${currentUser.name}`,
+          message: `Phase 3 training complete. Employee is ready for role upgrade.\n\nEmployee: ${currentUser.name}\nRole: ${currentUser.role}\nDate: ${new Date().toLocaleDateString()}\nTrainer: ${trainerName}\nResult: All 15 drinks demonstrated to standard\n\nAction Required: Owner or Manager must approve role upgrade in the Training Approval screen.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa`,
+        },
+      });
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE STATUS HELPERS
+  // ─────────────────────────────────────────────────────────────────────────
+  const phase1Complete = record?.phase1?.passed === true;
+  const phase2Complete = record?.phase2?.passed === true;
+  const phase3Complete = record?.phase3?.passed === true;
+
+  const totalSkills = phase2SkillGroups.reduce((acc, g) => acc + g.skills.length, 0);
+  const phase2Progress = signedSkills.size;
+  const allSkillsSigned = phase2Progress >= totalSkills;
+
+  const totalDrinks = phase3Drinks.length;
+  const phase3Progress = signedDrinks.size;
+  const allDrinksSigned = phase3Progress >= totalDrinks;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — PHASE PROGRESS BAR
+  // ─────────────────────────────────────────────────────────────────────────
+  const renderPhaseBar = () => {
+    const phases = [
+      {
+        key: 'phase1',
+        label: { en: 'Phase 1', es: 'Fase 1' },
+        sub: { en: 'Knowledge & Quiz', es: 'Conocimiento y Quiz' },
+        complete: phase1Complete,
+        locked: false,
+      },
+      {
+        key: 'phase2',
+        label: { en: 'Phase 2', es: 'Fase 2' },
+        sub: { en: 'Hands-On Skills', es: 'Habilidades Prácticas' },
+        complete: phase2Complete,
+        locked: !phase1Complete,
+      },
+      {
+        key: 'phase3',
+        label: { en: 'Phase 3', es: 'Fase 3' },
+        sub: { en: 'Drink Proficiency', es: 'Dominio de Bebidas' },
+        complete: phase3Complete,
+        locked: !phase2Complete,
+      },
+    ];
+
+    return (
+      <div style={styles.phaseBar}>
+        {phases.map((ph, idx) => {
+          const isActive = activePhase === ph.key;
+          const canTap = !ph.locked;
+          return (
+            <React.Fragment key={ph.key}>
+              <button
+                style={{
+                  ...styles.phaseStep,
+                  ...(isActive ? styles.phaseStepActive : {}),
+                  opacity: ph.locked ? 0.4 : 1,
+                  cursor: canTap ? 'pointer' : 'default',
+                }}
+                onClick={() => canTap && setActivePhase(ph.key)}
+                disabled={ph.locked}
+              >
+                <div style={styles.phaseIcon}>
+                  {ph.complete ? (
+                    <span style={{ color: '#4CAF50', fontSize: 20 }}>✓</span>
+                  ) : ph.locked ? (
+                    <span style={{ color: '#666', fontSize: 16 }}>🔒</span>
+                  ) : (
+                    <span style={{ color: isActive ? '#D4AF37' : '#888', fontWeight: 700, fontSize: 14 }}>
+                      {idx + 1}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <div style={{ ...styles.phaseLabel, color: isActive ? '#D4AF37' : ph.complete ? '#4CAF50' : '#ccc' }}>
+                    {ph.label[lang]}
+                  </div>
+                  <div style={styles.phaseSub}>{ph.sub[lang]}</div>
+                </div>
+              </button>
+              {idx < phases.length - 1 && (
+                <div style={{ ...styles.phaseConnector, backgroundColor: phase1Complete && idx === 0 ? '#D4AF37' : phase2Complete && idx === 1 ? '#D4AF37' : '#333' }} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — PHASE 1
+  // ─────────────────────────────────────────────────────────────────────────
+  const renderPhase1 = () => {
+    const correctCount = quizAnswers.filter((a) => a.correct).length;
+    const passed = correctCount >= 12;
+
+    return (
+      <div>
+        {/* Phase 1 complete banner */}
+        {phase1Complete && (
+          <div style={styles.completeBanner}>
+            <span>✓</span>
+            <div>
+              <div style={{ fontWeight: 700 }}>
+                {lang === 'es' ? 'Fase 1 Completa' : 'Phase 1 Complete'}
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>
+                {lang === 'es' ? 'Completada el' : 'Completed'} {formatDate(record?.phase1?.date)}
+              </div>
+            </div>
           </div>
-          <div style={{ fontSize: 13, color: '#888' }}>
-            {lang === 'es' ? 'El propietario ha activado la omisión de entrenamiento.' : 'Owner has enabled training bypass for your account.'}
+        )}
+
+        {/* Tab bar */}
+        <div style={styles.tabBar}>
+          <button
+            style={{ ...styles.tab, ...(p1Tab === 'study' ? styles.tabActive : {}) }}
+            onClick={() => setP1Tab('study')}
+          >
+            {lang === 'es' ? 'Material de Estudio' : 'Study Material'}
+          </button>
+          <button
+            style={{ ...styles.tab, ...(p1Tab === 'quiz' ? styles.tabActive : {}) }}
+            onClick={() => setP1Tab('quiz')}
+          >
+            {lang === 'es' ? 'Quiz' : 'Quiz'}
+            {phase1Complete && <span style={styles.tabBadgeGreen}> ✓</span>}
+          </button>
+        </div>
+
+        {p1Tab === 'study' && renderPhase1Study()}
+        {p1Tab === 'quiz' && renderPhase1Quiz(correctCount, passed)}
+      </div>
+    );
+  };
+
+  const renderPhase1Study = () => (
+    <div style={styles.section}>
+      {phase1Sections.map((sec) => {
+        const isOpen = expandedSections[sec.id];
+        return (
+          <div key={sec.id} style={styles.accordionItem}>
+            <button
+              style={styles.accordionHeader}
+              onClick={() => setExpandedSections((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))}
+            >
+              <span>
+                {sec.title[lang]}
+                {sec.required && (
+                  <span style={styles.requiredBadge}>
+                    {lang === 'es' ? ' OBLIGATORIO' : ' REQUIRED'}
+                  </span>
+                )}
+              </span>
+              <span style={{ color: '#D4AF37' }}>{isOpen ? '▲' : '▼'}</span>
+            </button>
+            {isOpen && (
+              <div style={styles.accordionBody}>
+                {sec.content[lang].map((item, i) => (
+                  <div key={i} style={styles.contentBlock}>
+                    <div style={styles.contentHeading}>{item.heading}</div>
+                    <div style={styles.contentBody}>{item.body}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderPhase1Quiz = (correctCount, passed) => {
+    if (lockoutInfo.isLocked && !phase1Complete) {
+      return (
+        <div style={styles.section}>
+          <div style={styles.lockoutCard}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+            <div style={styles.lockoutTitle}>
+              {lang === 'es' ? 'Quiz Bloqueado' : 'Quiz Locked'}
+            </div>
+            <div style={styles.lockoutBody}>
+              {lang === 'es'
+                ? `No pasaste el quiz. Revisa el material de estudio. Intenta de nuevo en ${lockoutInfo.remainingHours}h ${lockoutInfo.remainingMinutes}m.`
+                : `Quiz failed. Review the study material. Retry available in ${lockoutInfo.remainingHours}h ${lockoutInfo.remainingMinutes}m.`}
+            </div>
           </div>
         </div>
       );
     }
 
-    if (phase1Done) {
+    if (quizDone) {
       return (
-        <div>
-          <div style={S.completeBox}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>🎖️</div>
-            <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#7BB37B', marginBottom: 6 }}>
-              {lang === 'es' ? 'Fase 1 Completada' : 'Phase 1 Complete'}
+        <div style={styles.section}>
+          <div style={passed ? styles.passCard : styles.failCard}>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>{passed ? '🎉' : '❌'}</div>
+            <div style={styles.resultTitle}>
+              {passed
+                ? (lang === 'es' ? '¡Aprobado!' : 'Passed!')
+                : (lang === 'es' ? 'No Aprobado' : 'Not Passed')}
             </div>
-            <div style={{ fontSize: 12, color: '#666' }}>
-              {lang === 'es'
-                ? `Completado el ${new Date(trainingRecord.phase1.date).toLocaleDateString('es-MX')}`
-                : `Completed ${new Date(trainingRecord.phase1.date).toLocaleDateString('en-US')}`}
-              {trainingRecord.phase1.bypassed && (
-                <span style={{ color: '#C88B4B', marginLeft: 6 }}>· Bypassed by owner</span>
-              )}
+            <div style={styles.resultScore}>
+              {correctCount} / {quizQuestions.length} {lang === 'es' ? 'correctas' : 'correct'}
             </div>
-            {phase1JustPassed && (
-              <div style={{ fontSize: 12, color: '#7BB37B', marginTop: 8 }}>
-                {lang === 'es' ? '✓ Propietario notificado' : '✓ Owner notified by email'}
-              </div>
+            {!passed && (
+              <>
+                <div style={{ color: '#ccc', fontSize: 14, marginTop: 8 }}>
+                  {lang === 'es'
+                    ? 'Preguntas incorrectas — revisa estas secciones:'
+                    : 'Missed questions — review these sections:'}
+                </div>
+                {quizAnswers.filter((a) => !a.correct).map((a) => {
+                  const q = phase1Quiz.find((q) => q.id === a.questionId);
+                  return q ? (
+                    <div key={a.questionId} style={styles.missedQ}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{q.question[lang]}</div>
+                      <div style={{ color: '#4CAF50', fontSize: 13 }}>
+                        ✓ {q.options[lang][q.correctIndex]}
+                      </div>
+                      <div style={{ color: '#888', fontSize: 12 }}>{q.explanation[lang]}</div>
+                    </div>
+                  ) : null;
+                })}
+                {lockoutInfo.isLocked ? (
+                  <div style={{ marginTop: 16, color: '#aaa', fontSize: 13 }}>
+                    {lang === 'es'
+                      ? `Bloqueado por 24 horas. Tiempo restante: ${lockoutInfo.remainingHours || 24}h ${lockoutInfo.remainingMinutes || 0}m`
+                      : `Locked for 24 hours. Time remaining: ${lockoutInfo.remainingHours || 24}h ${lockoutInfo.remainingMinutes || 0}m`}
+                  </div>
+                ) : (
+                  <button style={{ ...styles.btnGold, marginTop: 18, width: '100%' }} onClick={handleRetakeQuiz}>
+                    {lang === 'es' ? 'Reintentar Quiz' : 'Retake Quiz'}
+                  </button>
+                )}
+              </>
             )}
           </div>
-          {/* Still allow reviewing material even after passing */}
-          <div style={{ fontSize: 12, color: '#555', textAlign: 'center', marginBottom: 16 }}>
-            {lang === 'es' ? 'Puedes seguir revisando el material abajo.' : 'You can still review the material below.'}
+        </div>
+      );
+    }
+
+    // Show quiz (or already-passed state)
+    if (phase1Complete) {
+      return (
+        <div style={styles.section}>
+          <div style={styles.alreadyPassedCard}>
+            <div style={{ fontSize: 32 }}>✓</div>
+            <div style={{ fontWeight: 700, color: '#4CAF50' }}>
+              {lang === 'es' ? 'Quiz Aprobado' : 'Quiz Passed'}
+            </div>
+            <div style={{ color: '#ccc', fontSize: 14, marginTop: 4 }}>
+              {lang === 'es' ? 'Completado el' : 'Completed on'} {formatDate(record?.phase1?.date)}
+            </div>
           </div>
-          {renderContentSections()}
+        </div>
+      );
+    }
+
+    const q = quizQuestions[currentQ];
+    if (!q) return null;
+
+    const progress = ((currentQ) / quizQuestions.length) * 100;
+
+    return (
+      <div style={styles.section}>
+        <div style={styles.quizProgress}>
+          <div style={styles.quizProgressBar}>
+            <div style={{ ...styles.quizProgressFill, width: `${progress}%` }} />
+          </div>
+          <div style={styles.quizProgressLabel}>
+            {currentQ + 1} / {quizQuestions.length}
+          </div>
+        </div>
+
+        <div style={styles.quizCard}>
+          <div style={styles.quizQuestion}>{q.question[lang]}</div>
+          <div style={styles.quizOptions}>
+            {q.options[lang].map((opt, idx) => {
+              let bg = '#1A1A1A';
+              let border = '1px solid #333';
+              let color = '#F5F0E8';
+              if (showFeedback) {
+                if (idx === q.correctIndex) { bg = '#1a3a1a'; border = '1px solid #4CAF50'; color = '#4CAF50'; }
+                else if (idx === selectedAnswer && idx !== q.correctIndex) { bg = '#3a1a1a'; border = '1px solid #f44336'; color = '#f44336'; }
+              } else if (idx === selectedAnswer) {
+                border = '1px solid #D4AF37';
+              }
+              return (
+                <button
+                  key={idx}
+                  style={{ ...styles.quizOption, background: bg, border, color }}
+                  onClick={() => handleSelectAnswer(idx)}
+                  disabled={showFeedback}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+
+          {showFeedback && (
+            <div style={styles.quizFeedback}>
+              <div style={{ color: selectedAnswer === q.correctIndex ? '#4CAF50' : '#f44336', fontWeight: 700, marginBottom: 4 }}>
+                {selectedAnswer === q.correctIndex
+                  ? (lang === 'es' ? '✓ Correcto' : '✓ Correct')
+                  : (lang === 'es' ? '✗ Incorrecto' : '✗ Incorrect')}
+              </div>
+              <div style={{ color: '#ccc', fontSize: 14 }}>{q.explanation[lang]}</div>
+              <button style={{ ...styles.btnGold, marginTop: 16, width: '100%' }} onClick={handleNextQuestion}>
+                {currentQ < quizQuestions.length - 1
+                  ? (lang === 'es' ? 'Siguiente Pregunta' : 'Next Question')
+                  : (lang === 'es' ? 'Ver Resultados' : 'See Results')}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — PHASE 2
+  // ─────────────────────────────────────────────────────────────────────────
+  const renderPhase2 = () => {
+    if (!phase1Complete) {
+      return (
+        <div style={styles.lockedPhase}>
+          <div style={{ fontSize: 48 }}>🔒</div>
+          <div style={styles.lockedTitle}>
+            {lang === 'es' ? 'Completa la Fase 1 primero' : 'Complete Phase 1 first'}
+          </div>
+          <div style={styles.lockedBody}>
+            {lang === 'es'
+              ? 'Debes aprobar el quiz de la Fase 1 antes de comenzar el entrenamiento práctico.'
+              : 'You must pass the Phase 1 quiz before starting hands-on training.'}
+          </div>
+        </div>
+      );
+    }
+
+    if (phase2Complete) {
+      return (
+        <div>
+          <div style={styles.completeBanner}>
+            <span>✓</span>
+            <div>
+              <div style={{ fontWeight: 700 }}>
+                {lang === 'es' ? 'Fase 2 Completa' : 'Phase 2 Complete'}
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>
+                {lang === 'es' ? 'Entrenador:' : 'Trainer:'} {record?.phase2?.trainerName} · {formatDate(record?.phase2?.date)}
+              </div>
+            </div>
+          </div>
+          {/* Still show skills for reference */}
+          {renderPhase2Skills(true)}
         </div>
       );
     }
 
     return (
       <div>
-        {activeTab === 'content' && (
-          <div>
-            <div style={{
-              background: '#1A1A1A', border: '1px solid rgba(212,175,55,0.15)',
-              borderRadius: 12, padding: '14px 14px', marginBottom: 16,
-              fontSize: 13, lineHeight: 1.6, color: '#9A9080',
-            }}>
+        <div style={styles.phaseIntro}>
+          <p style={styles.phaseIntroText}>
+            {lang === 'es'
+              ? 'El entrenador firma cada habilidad cuando está satisfecho de que puedes realizarla correctamente e independientemente. No firmes para avanzar — una habilidad no firmada es una responsabilidad.'
+              : 'Trainer signs each skill when satisfied you can perform it correctly and independently. Do not sign off to move training along — an unsigned skill becomes a liability.'}
+          </p>
+          <div style={styles.progressPill}>
+            {phase2Progress} / {totalSkills} {lang === 'es' ? 'habilidades confirmadas' : 'skills confirmed'}
+          </div>
+        </div>
+
+        {renderPhase2Skills(false)}
+
+        {allSkillsSigned && !phase2Complete && (
+          <div style={styles.completePhaseSection}>
+            <p style={styles.completePhaseNote}>
               {lang === 'es'
-                ? 'Lee todo el material antes de tomar el examen. El examen tiene 15 preguntas y requiere 80% para aprobar. Si no apruebas, hay un bloqueo de 24 horas antes de reintentar.'
-                : 'Read all material before taking the quiz. The quiz has 15 questions and requires 80% to pass. If you don\'t pass, there is a 24-hour lockout before you can retry.'}
-            </div>
-            {renderContentSections()}
-            <button
-              style={{ ...S.btn, ...S.btnGold, ...S.btnBlock }}
-              onClick={() => setActiveTab('quiz')}
-              type="button"
-            >
-              {lang === 'es' ? 'Comenzar Examen →' : 'Take the Quiz →'}
+                ? 'Todas las habilidades han sido confirmadas. El entrenador puede cerrar la Fase 2.'
+                : 'All skills have been confirmed. Trainer may now close out Phase 2.'}
+            </p>
+            <button style={styles.btnGoldLarge} onClick={handlePhase2Complete}>
+              {lang === 'es' ? 'Cerrar Fase 2' : 'Complete Phase 2'}
             </button>
           </div>
         )}
+      </div>
+    );
+  };
 
-        {activeTab === 'quiz' && (
-          <div>
-            <button
-              style={{ ...S.btn, ...S.btnGhost, marginBottom: 16 }}
-              onClick={() => setActiveTab('content')}
-              type="button"
-            >
-              ← {lang === 'es' ? 'Volver al Material' : 'Back to Material'}
-            </button>
-
-            {lockoutInfo.isLocked ? (
-              <div style={S.lockedBox}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>🔒</div>
-                <div style={{
-                  fontFamily: 'Georgia, serif', fontSize: 16, color: '#C84B4B', marginBottom: 8,
-                }}>
-                  {lang === 'es' ? 'Reintento Bloqueado' : 'Retry Locked'}
+  const renderPhase2Skills = (readOnly) => (
+    <div style={styles.section}>
+      {phase2SkillGroups.map((group) => (
+        <div key={group.id} style={styles.skillGroup}>
+          <div style={styles.skillGroupHeader}>{group.title[lang]}</div>
+          {group.skills.map((skill) => {
+            const signed = signedSkills.has(skill.id) || phase2Complete;
+            return (
+              <div key={skill.id} style={{ ...styles.skillRow, ...(signed ? styles.skillRowSigned : {}) }}>
+                <div style={styles.skillInfo}>
+                  {skill.critical && <span style={styles.criticalBadge}>⚠</span>}
+                  <div>
+                    <div style={styles.skillName}>{skill.skill[lang]}</div>
+                    <div style={styles.skillNote}>{skill.note[lang]}</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 14, color: '#888', lineHeight: 1.6 }}>
-                  {lang === 'es'
-                    ? `Vuelve a intentarlo en ${lockoutInfo.remainingHours}h ${lockoutInfo.remainingMinutes}m. Usa este tiempo para revisar el material.`
-                    : `Try again in ${lockoutInfo.remainingHours}h ${lockoutInfo.remainingMinutes}m. Use this time to review the material.`}
+                <div style={styles.skillAction}>
+                  {signed ? (
+                    <div style={styles.signedBadge}>
+                      {!readOnly && (
+                        <button style={styles.unsignBtn} onClick={() => handleUnsignSkill(skill.id)}>✕</button>
+                      )}
+                      <span style={{ color: '#4CAF50', fontWeight: 700 }}>✓</span>
+                    </div>
+                  ) : !readOnly ? (
+                    <button style={styles.signBtn} onClick={() => {
+                      setCountersignModal({
+                        type: 'skill',
+                        skillId: skill.id,
+                        drinkId: null,
+                        title: lang === 'es' ? 'Confirmar Habilidad' : 'Confirm Skill Sign-Off',
+                        description: lang === 'es'
+                          ? 'El entrenador confirma que esta habilidad fue demostrada correctamente e independientemente.'
+                          : 'Trainer confirms this skill was demonstrated correctly and independently.',
+                      });
+                    }}>
+                      {lang === 'es' ? 'Firmar' : 'Sign Off'}
+                    </button>
+                  ) : (
+                    <span style={{ color: '#555' }}>—</span>
+                  )}
                 </div>
               </div>
-            ) : (
-              <Quiz
-                key={quizKey}
-                employeeId={session.id}
-                lang={lang}
-                onPassed={handleQuizPassed}
-                onFailed={() => { handleQuizFailed(); setQuizKey(k => k + 1); }}
-              />
-            )}
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — PHASE 3
+  // ─────────────────────────────────────────────────────────────────────────
+  const renderPhase3 = () => {
+    if (!phase2Complete) {
+      return (
+        <div style={styles.lockedPhase}>
+          <div style={{ fontSize: 48 }}>🔒</div>
+          <div style={styles.lockedTitle}>
+            {lang === 'es' ? 'Completa la Fase 2 primero' : 'Complete Phase 2 first'}
+          </div>
+          <div style={styles.lockedBody}>
+            {lang === 'es'
+              ? 'Debes completar todas las habilidades de la Fase 2 antes de la prueba de bebidas.'
+              : 'You must complete all Phase 2 skills before drink proficiency testing.'}
+          </div>
+        </div>
+      );
+    }
+
+    if (phase3Complete) {
+      return (
+        <div>
+          <div style={styles.completeBanner}>
+            <span>✓</span>
+            <div>
+              <div style={{ fontWeight: 700 }}>
+                {lang === 'es' ? 'Fase 3 Completa' : 'Phase 3 Complete'}
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>
+                {lang === 'es' ? 'Entrenador:' : 'Trainer:'} {record?.phase3?.trainerName} · {formatDate(record?.phase3?.date)}
+              </div>
+              <div style={{ fontSize: 13, marginTop: 4, opacity: 0.8 }}>
+                {lang === 'es'
+                  ? 'Pendiente de aprobación del dueño o gerente.'
+                  : 'Awaiting Owner or Manager role upgrade approval.'}
+              </div>
+            </div>
+          </div>
+          {renderPhase3Drinks(true)}
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <div style={styles.phaseIntro}>
+          <p style={styles.phaseIntroText}>
+            {lang === 'es'
+              ? 'El entrenador observa cada bebida siendo construida sin instrucción. Aprobado = ingredientes correctos, secuencia correcta, presentación correcta, dentro del tiempo objetivo.'
+              : 'Trainer observes each drink being built without coaching. Pass = correct ingredients, correct build sequence, correct presentation, within target build time.'}
+          </p>
+
+          {/* Pass standards reference */}
+          <div style={styles.standardsGrid}>
+            {phase3Standards[lang].map((s) => (
+              <div key={s.label} style={styles.standardCard}>
+                <div style={styles.standardLabel}>{s.label}</div>
+                <div style={styles.standardDesc}>{s.desc}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={styles.progressPill}>
+            {phase3Progress} / {totalDrinks} {lang === 'es' ? 'bebidas confirmadas' : 'drinks confirmed'}
+          </div>
+        </div>
+
+        {renderPhase3Drinks(false)}
+
+        {allDrinksSigned && !phase3Complete && (
+          <div style={styles.completePhaseSection}>
+            <p style={styles.completePhaseNote}>
+              {lang === 'es'
+                ? 'Las 15 bebidas han sido confirmadas. El entrenador puede cerrar la Fase 3.'
+                : 'All 15 drinks have been confirmed. Trainer may now close out Phase 3.'}
+            </p>
+            <button
+              style={styles.btnGoldLarge}
+              onClick={() => {
+                setCountersignModal({
+                  type: 'phase3complete',
+                  title: lang === 'es' ? 'Completar Fase 3' : 'Complete Phase 3',
+                  description: lang === 'es'
+                    ? 'El entrenador confirma que las 15 bebidas fueron demostradas al estándar. El empleado estará listo para aprobación del dueño.'
+                    : 'Trainer confirms all 15 drinks were demonstrated to standard. Employee will be ready for Owner approval.',
+                });
+              }}
+            >
+              {lang === 'es' ? 'Cerrar Fase 3' : 'Complete Phase 3'}
+            </button>
           </div>
         )}
       </div>
     );
-  }
+  };
 
-  function renderContentSections() {
-    return PHASE1_SECTIONS.map((section, i) => (
-      <ContentSection
-        key={section.id}
-        section={section}
-        lang={lang}
-        defaultOpen={i === 0}
-      />
-    ));
-  }
+  const renderPhase3Drinks = (readOnly) => {
+    // Group drinks by category
+    const categories = [];
+    const seen = new Set();
+    phase3Drinks.forEach((d) => {
+      const cat = d.category[lang];
+      if (!seen.has(cat)) { seen.add(cat); categories.push(cat); }
+    });
 
-  function renderPhase2() {
-    if (phase2Done) {
-      return (
-        <div style={S.completeBox}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🎖️</div>
-          <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#7BB37B', marginBottom: 6 }}>
-            {lang === 'es' ? 'Fase 2 Completada' : 'Phase 2 Complete'}
-          </div>
-          <div style={{ fontSize: 12, color: '#666' }}>
-            {lang === 'es' ? 'Entrenador:' : 'Trainer:'} {trainingRecord.phase2.trainerName || '—'} ·{' '}
-            {trainingRecord.phase2.date ? new Date(trainingRecord.phase2.date).toLocaleDateString('en-US') : ''}
-          </div>
-        </div>
-      );
-    }
-    if (!phase1Done) {
-      return (
-        <div style={{ ...S.stubBox, paddingTop: 32, paddingBottom: 32 }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
-          <div style={{ fontFamily: 'Georgia, serif', fontSize: 15, color: '#555', marginBottom: 6 }}>
-            {lang === 'es' ? 'Completa la Fase 1 primero' : 'Complete Phase 1 First'}
-          </div>
-          <div style={{ fontSize: 12, color: '#3A3A3A' }}>
-            {lang === 'es'
-              ? 'La Fase 2 se desbloquea después de aprobar el examen de la Fase 1.'
-              : 'Phase 2 unlocks after passing the Phase 1 quiz.'}
-          </div>
-        </div>
-      );
-    }
     return (
-      <div style={S.stubBox}>
-        <div style={{ fontSize: 36, marginBottom: 10 }}>🛠️</div>
-        <div style={{ fontFamily: 'Georgia, serif', fontSize: 15, color: '#D4AF37', marginBottom: 8 }}>
-          {lang === 'es' ? 'Entrenamiento Práctico Supervisado' : 'Supervised Hands-On Training'}
-        </div>
-        <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
-          {lang === 'es'
-            ? 'La Fase 2 es completada con un entrenador. Pídele a tu gerente o propietario que inicie la sesión de Fase 2.'
-            : 'Phase 2 is completed with a trainer. Ask your manager or owner to start your Phase 2 session.'}
-        </div>
-        <div style={{
-          marginTop: 16, padding: '10px 14px', background: 'rgba(212,175,55,0.06)',
-          border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10,
-          fontSize: 12, color: '#D4AF37',
-        }}>
-          {lang === 'es' ? '↑ Disponible en la Sesión 8' : '↑ Available in Session 8'}
-        </div>
+      <div style={styles.section}>
+        {categories.map((cat) => (
+          <div key={cat} style={styles.skillGroup}>
+            <div style={styles.skillGroupHeader}>{cat}</div>
+            {phase3Drinks
+              .filter((d) => d.category[lang] === cat)
+              .map((drink) => {
+                const signed = signedDrinks.has(drink.id) || phase3Complete;
+                return (
+                  <div key={drink.id} style={{ ...styles.skillRow, ...(signed ? styles.skillRowSigned : {}) }}>
+                    <div style={styles.skillInfo}>
+                      <div>
+                        <div style={styles.skillName}>{drink.name}</div>
+                        <div style={styles.skillNote}>{drink.prepType[lang]}</div>
+                      </div>
+                    </div>
+                    <div style={styles.skillAction}>
+                      {signed ? (
+                        <div style={styles.signedBadge}>
+                          {!readOnly && !phase3Complete && (
+                            <button style={styles.unsignBtn} onClick={() => {
+                              const updated = new Set(signedDrinks);
+                              updated.delete(drink.id);
+                              setSignedDrinks(updated);
+                              savePhase3Progress(currentUser.id, [...updated]);
+                            }}>✕</button>
+                          )}
+                          <span style={{ color: '#4CAF50', fontWeight: 700 }}>✓</span>
+                        </div>
+                      ) : !readOnly ? (
+                        <button style={styles.signBtn} onClick={() => {
+                          setCountersignModal({
+                            type: 'skill',
+                            skillId: null,
+                            drinkId: drink.id,
+                            title: lang === 'es' ? 'Confirmar Bebida' : 'Confirm Drink Sign-Off',
+                            description: lang === 'es'
+                              ? `El entrenador observó "${drink.name}" construida correctamente sin instrucción. Ingredientes, secuencia, presentación y tiempo — todo dentro del estándar.`
+                              : `Trainer observed "${drink.name}" built correctly without coaching. Ingredients, sequence, presentation, and build time — all within standard.`,
+                          });
+                        }}>
+                          {lang === 'es' ? 'Firmar' : 'Sign Off'}
+                        </button>
+                      ) : (
+                        <span style={{ color: '#555' }}>—</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        ))}
       </div>
     );
-  }
+  };
 
-  function renderPhase3() {
-    if (phase3Done) {
-      return (
-        <div style={S.completeBox}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🎖️</div>
-          <div style={{ fontFamily: 'Georgia, serif', fontSize: 16, color: '#7BB37B', marginBottom: 6 }}>
-            {lang === 'es' ? 'Fase 3 Completada' : 'Phase 3 Complete'}
-          </div>
-          <div style={{ fontSize: 12, color: '#666' }}>
-            {lang === 'es' ? 'Entrenador:' : 'Trainer:'} {trainingRecord.phase3.trainerName || '—'} ·{' '}
-            {trainingRecord.phase3.date ? new Date(trainingRecord.phase3.date).toLocaleDateString('en-US') : ''}
-          </div>
-        </div>
-      );
-    }
-    if (!phase2Done) {
-      return (
-        <div style={{ ...S.stubBox, paddingTop: 32, paddingBottom: 32 }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
-          <div style={{ fontFamily: 'Georgia, serif', fontSize: 15, color: '#555', marginBottom: 6 }}>
-            {lang === 'es' ? 'Completa la Fase 2 primero' : 'Complete Phase 2 First'}
-          </div>
-          <div style={{ fontSize: 12, color: '#3A3A3A' }}>
-            {lang === 'es'
-              ? 'La Fase 3 se desbloquea después de completar la Fase 2.'
-              : 'Phase 3 unlocks after completing Phase 2.'}
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div style={S.stubBox}>
-        <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
-        <div style={{ fontFamily: 'Georgia, serif', fontSize: 15, color: '#D4AF37', marginBottom: 8 }}>
-          {lang === 'es' ? 'Lista Diaria en Vivo Supervisada' : 'Supervised Live Daily Checklist'}
-        </div>
-        <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
-          {lang === 'es'
-            ? 'Completa una lista diaria real con supervisión directa del entrenador.'
-            : 'Complete a real daily checklist under direct trainer supervision.'}
-        </div>
-        <div style={{
-          marginTop: 16, padding: '10px 14px', background: 'rgba(212,175,55,0.06)',
-          border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10,
-          fontSize: 12, color: '#D4AF37',
-        }}>
-          {lang === 'es' ? '↑ Disponible en la Sesión 8' : '↑ Available in Session 8'}
-        </div>
-      </div>
-    );
-  }
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // MAIN RENDER
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={S.screen}>
+    <div style={styles.container}>
       {/* Header */}
-      <div style={S.header}>
-        <div style={S.headerTop}>
-          <div style={S.headerTitle}>
-            {lang === 'es' ? 'Portal de Entrenamiento' : 'Training Portal'}
-          </div>
-          {allDone && (
-            <div style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.07em',
-              textTransform: 'uppercase', color: '#7BB37B',
-              background: 'rgba(123,179,123,0.1)', border: '1px solid rgba(123,179,123,0.3)',
-              borderRadius: 6, padding: '3px 8px',
-            }}>
-              {lang === 'es' ? '✓ Completo' : '✓ Complete'}
-            </div>
-          )}
+      <div style={styles.header}>
+        <div style={styles.headerLogo}>✦ QUEZ COFFEE CO.</div>
+        <div style={styles.headerTitle}>
+          {lang === 'es' ? 'Portal de Entrenamiento' : 'Training Portal'}
         </div>
-        <div style={S.headerSub}>
-          {lang === 'es' ? `Hola, ${session.name}` : `Welcome, ${session.name}`}
+        <div style={styles.headerSub}>
+          {currentUser?.name} · {currentUser?.role}
         </div>
       </div>
 
-      {/* Phase Progress Bar */}
-      <div style={S.phaseBar}>
-        <PhaseStep
-          num={1} emoji="📖"
-          label={lang === 'es' ? 'Orientación' : 'Orientation'}
-          status={phase1Done ? (lang === 'es' ? 'Completado' : 'Complete') : (lang === 'es' ? 'En Progreso' : 'In Progress')}
-          active={activePhase === 1} done={phase1Done}
-          onClick={() => setActivePhase(1)}
-        />
-        <PhaseStep
-          num={2} emoji="🛠️"
-          label={lang === 'es' ? 'Equipo' : 'Equipment'}
-          status={phase2Done ? (lang === 'es' ? 'Completado' : 'Complete') : (phase1Done ? (lang === 'es' ? 'Desbloqueado' : 'Unlocked') : (lang === 'es' ? 'Bloqueado' : 'Locked'))}
-          active={activePhase === 2} done={phase2Done}
-          onClick={() => setActivePhase(2)}
-        />
-        <PhaseStep
-          num={3} emoji="☑️"
-          label={lang === 'es' ? 'Lista en Vivo' : 'Live List'}
-          status={phase3Done ? (lang === 'es' ? 'Completado' : 'Complete') : (phase2Done ? (lang === 'es' ? 'Desbloqueado' : 'Unlocked') : (lang === 'es' ? 'Bloqueado' : 'Locked'))}
-          active={activePhase === 3} done={phase3Done}
-          onClick={() => setActivePhase(3)}
-        />
-      </div>
-
-      {/* Body */}
-      <div style={S.body}>
-        {activePhase === 1 && (
+      {/* All 3 phases complete — awaiting approval */}
+      {phase1Complete && phase2Complete && phase3Complete && (
+        <div style={styles.soloReadyBanner}>
+          <div style={{ fontSize: 28 }}>🏆</div>
           <div>
-            {/* Tab switcher — only show if phase 1 not done yet */}
-            {!phase1Done && (
-              <div style={{
-                display: 'flex', gap: 6, marginBottom: 16,
-                background: '#1A1A1A', borderRadius: 10, padding: 4,
-              }}>
-                <button
-                  style={{
-                    flex: 1, padding: '10px', borderRadius: 8, border: 'none',
-                    cursor: 'pointer', fontFamily: 'Georgia, serif', fontSize: 13,
-                    background: activeTab === 'content' ? '#D4AF37' : 'transparent',
-                    color: activeTab === 'content' ? '#0D0D0D' : '#888',
-                    transition: 'all 0.15s',
-                  }}
-                  onClick={() => setActiveTab('content')}
-                  type="button"
-                >
-                  {lang === 'es' ? '📖 Material' : '📖 Study Material'}
-                </button>
-                <button
-                  style={{
-                    flex: 1, padding: '10px', borderRadius: 8, border: 'none',
-                    cursor: 'pointer', fontFamily: 'Georgia, serif', fontSize: 13,
-                    background: activeTab === 'quiz' ? '#D4AF37' : 'transparent',
-                    color: activeTab === 'quiz' ? '#0D0D0D' : '#888',
-                    transition: 'all 0.15s',
-                  }}
-                  onClick={() => setActiveTab('quiz')}
-                  type="button"
-                >
-                  {lang === 'es' ? '✏️ Examen' : '✏️ Quiz'}
-                </button>
-              </div>
-            )}
-            {renderPhase1()}
+            <div style={{ fontWeight: 700, color: '#D4AF37' }}>
+              {lang === 'es' ? 'Todas las Fases Completas' : 'All Phases Complete'}
+            </div>
+            <div style={{ fontSize: 13, color: '#ccc', marginTop: 2 }}>
+              {lang === 'es'
+                ? 'Pendiente de aprobación del dueño o gerente para actualización de rol.'
+                : 'Awaiting Owner or Manager approval for role upgrade.'}
+            </div>
           </div>
-        )}
-        {activePhase === 2 && renderPhase2()}
-        {activePhase === 3 && renderPhase3()}
+        </div>
+      )}
+
+      {/* Phase progress bar */}
+      {renderPhaseBar()}
+
+      {/* Phase content */}
+      <div style={styles.phaseContent}>
+        {activePhase === 'phase1' && renderPhase1()}
+        {activePhase === 'phase2' && renderPhase2()}
+        {activePhase === 'phase3' && renderPhase3()}
       </div>
+
+      {/* Trainer countersign modal */}
+      {countersignModal && (
+        <TrainerCountersignModal
+          lang={lang}
+          title={countersignModal.title}
+          description={countersignModal.description}
+          onConfirm={handleCountersignConfirmUnified}
+          onCancel={() => setCountersignModal(null)}
+        />
+      )}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────────────────────
+const styles = {
+  container: {
+    backgroundColor: '#0D0D0D',
+    minHeight: '100vh',
+    color: '#F5F0E8',
+    fontFamily: "'Inter', 'Helvetica Neue', sans-serif",
+    paddingBottom: 80,
+  },
+  header: {
+    backgroundColor: '#1A1A1A',
+    borderBottom: '1px solid #D4AF37',
+    padding: '20px 20px 16px',
+    textAlign: 'center',
+  },
+  headerLogo: {
+    color: '#D4AF37',
+    fontSize: 11,
+    letterSpacing: 3,
+    fontWeight: 700,
+    marginBottom: 4,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontFamily: 'Georgia, serif',
+    fontWeight: 700,
+    color: '#F5F0E8',
+  },
+  headerSub: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 2,
+  },
+  phaseBar: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '16px 12px',
+    backgroundColor: '#111',
+    borderBottom: '1px solid #222',
+    overflowX: 'auto',
+  },
+  phaseStep: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: 'none',
+    border: 'none',
+    padding: '8px 12px',
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+  phaseStepActive: {
+    backgroundColor: '#1A1A1A',
+  },
+  phaseIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    backgroundColor: '#222',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  phaseLabel: {
+    fontSize: 14,
+    fontWeight: 700,
+    lineHeight: 1.2,
+  },
+  phaseSub: {
+    fontSize: 11,
+    color: '#666',
+  },
+  phaseConnector: {
+    height: 2,
+    width: 24,
+    flexShrink: 0,
+  },
+  phaseContent: {
+    padding: '0 16px',
+  },
+  section: {
+    paddingTop: 12,
+  },
+  completeBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#1a3a1a',
+    border: '1px solid #4CAF50',
+    borderRadius: 10,
+    padding: '14px 16px',
+    margin: '16px 0 8px',
+    color: '#4CAF50',
+    fontSize: 20,
+  },
+  soloReadyBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#1a1600',
+    border: '1px solid #D4AF37',
+    borderRadius: 10,
+    padding: '14px 16px',
+    margin: '16px 16px 0',
+  },
+  tabBar: {
+    display: 'flex',
+    gap: 4,
+    margin: '16px 0 4px',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 10,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    padding: '10px 8px',
+    background: 'none',
+    border: 'none',
+    color: '#888',
+    fontSize: 14,
+    fontWeight: 600,
+    borderRadius: 7,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    backgroundColor: '#2A2A2A',
+    color: '#D4AF37',
+  },
+  tabBadgeGreen: {
+    color: '#4CAF50',
+  },
+  accordionItem: {
+    marginBottom: 8,
+    borderRadius: 10,
+    overflow: 'hidden',
+    border: '1px solid #222',
+  },
+  accordionHeader: {
+    width: '100%',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '14px 16px',
+    backgroundColor: '#1A1A1A',
+    border: 'none',
+    color: '#F5F0E8',
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  accordionBody: {
+    backgroundColor: '#111',
+    padding: '12px 16px',
+  },
+  contentBlock: {
+    marginBottom: 16,
+  },
+  contentHeading: {
+    color: '#D4AF37',
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  contentBody: {
+    color: '#ccc',
+    fontSize: 14,
+    lineHeight: 1.6,
+  },
+  requiredBadge: {
+    backgroundColor: '#D4AF37',
+    color: '#0D0D0D',
+    fontSize: 10,
+    fontWeight: 800,
+    padding: '2px 6px',
+    borderRadius: 4,
+    marginLeft: 8,
+    letterSpacing: 0.5,
+  },
+  phaseIntro: {
+    margin: '16px 0 8px',
+  },
+  phaseIntroText: {
+    color: '#aaa',
+    fontSize: 14,
+    lineHeight: 1.6,
+    margin: '0 0 12px',
+    fontStyle: 'italic',
+    borderLeft: '3px solid #D4AF37',
+    paddingLeft: 12,
+  },
+  progressPill: {
+    display: 'inline-block',
+    backgroundColor: '#1A1A1A',
+    border: '1px solid #D4AF37',
+    color: '#D4AF37',
+    fontSize: 13,
+    fontWeight: 700,
+    padding: '6px 14px',
+    borderRadius: 20,
+  },
+  skillGroup: {
+    marginBottom: 16,
+    borderRadius: 10,
+    overflow: 'hidden',
+    border: '1px solid #222',
+  },
+  skillGroupHeader: {
+    backgroundColor: '#1A1A1A',
+    borderBottom: '1px solid #D4AF37',
+    color: '#D4AF37',
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 1,
+    padding: '10px 14px',
+    textTransform: 'uppercase',
+  },
+  skillRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 14px',
+    borderBottom: '1px solid #1a1a1a',
+    backgroundColor: '#0D0D0D',
+    gap: 10,
+  },
+  skillRowSigned: {
+    backgroundColor: '#0a1a0a',
+  },
+  skillInfo: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    flex: 1,
+  },
+  criticalBadge: {
+    color: '#FFA500',
+    fontSize: 16,
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  skillName: {
+    color: '#F5F0E8',
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.4,
+  },
+  skillNote: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  skillAction: {
+    flexShrink: 0,
+  },
+  signBtn: {
+    backgroundColor: '#1A1A1A',
+    border: '1px solid #D4AF37',
+    color: '#D4AF37',
+    fontSize: 12,
+    fontWeight: 700,
+    padding: '7px 12px',
+    borderRadius: 6,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  signedBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  unsignBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#555',
+    fontSize: 12,
+    cursor: 'pointer',
+    padding: '2px 4px',
+  },
+  completePhaseSection: {
+    margin: '24px 0',
+    padding: '20px',
+    backgroundColor: '#111',
+    borderRadius: 12,
+    border: '1px solid #D4AF37',
+    textAlign: 'center',
+  },
+  completePhaseNote: {
+    color: '#ccc',
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  lockedPhase: {
+    textAlign: 'center',
+    padding: '60px 20px',
+  },
+  lockedTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: '#888',
+    marginTop: 12,
+  },
+  lockedBody: {
+    color: '#555',
+    fontSize: 14,
+    marginTop: 8,
+    lineHeight: 1.6,
+  },
+  lockoutCard: {
+    backgroundColor: '#1a0a0a',
+    border: '1px solid #8B0000',
+    borderRadius: 12,
+    padding: '32px 20px',
+    textAlign: 'center',
+  },
+  lockoutTitle: {
+    color: '#f44336',
+    fontSize: 18,
+    fontWeight: 700,
+    marginBottom: 8,
+  },
+  lockoutBody: {
+    color: '#ccc',
+    fontSize: 14,
+    lineHeight: 1.6,
+  },
+  quizProgress: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  quizProgressBar: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#222',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  quizProgressFill: {
+    height: '100%',
+    backgroundColor: '#D4AF37',
+    borderRadius: 2,
+    transition: 'width 0.3s ease',
+  },
+  quizProgressLabel: {
+    color: '#888',
+    fontSize: 13,
+    whiteSpace: 'nowrap',
+  },
+  quizCard: {
+    backgroundColor: '#111',
+    borderRadius: 12,
+    padding: '20px 16px',
+    border: '1px solid #222',
+  },
+  quizQuestion: {
+    fontSize: 16,
+    fontWeight: 600,
+    color: '#F5F0E8',
+    lineHeight: 1.5,
+    marginBottom: 20,
+  },
+  quizOptions: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+  },
+  quizOption: {
+    width: '100%',
+    padding: '14px 16px',
+    textAlign: 'left',
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: 'pointer',
+    lineHeight: 1.4,
+    transition: 'all 0.15s',
+  },
+  quizFeedback: {
+    marginTop: 20,
+    padding: '16px',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 8,
+  },
+  passCard: {
+    backgroundColor: '#1a3a1a',
+    border: '1px solid #4CAF50',
+    borderRadius: 12,
+    padding: '32px 20px',
+    textAlign: 'center',
+  },
+  failCard: {
+    backgroundColor: '#1a0a0a',
+    border: '1px solid #8B0000',
+    borderRadius: 12,
+    padding: '32px 20px',
+    textAlign: 'center',
+  },
+  resultTitle: {
+    fontSize: 24,
+    fontWeight: 700,
+    color: '#F5F0E8',
+    marginBottom: 8,
+  },
+  resultScore: {
+    fontSize: 18,
+    color: '#D4AF37',
+    fontWeight: 600,
+  },
+  missedQ: {
+    textAlign: 'left',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 8,
+    padding: '12px 14px',
+    marginTop: 12,
+  },
+  alreadyPassedCard: {
+    backgroundColor: '#1a3a1a',
+    border: '1px solid #4CAF50',
+    borderRadius: 12,
+    padding: '32px 20px',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 8,
+  },
+  standardsGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 8,
+    margin: '12px 0',
+  },
+  standardCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 8,
+    padding: '10px 12px',
+    border: '1px solid #2A2A2A',
+  },
+  standardLabel: {
+    color: '#D4AF37',
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: 0.5,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  standardDesc: {
+    color: '#ccc',
+    fontSize: 12,
+    lineHeight: 1.4,
+  },
+  // Modal
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: 20,
+  },
+  modal: {
+    backgroundColor: '#1A1A1A',
+    border: '1px solid #D4AF37',
+    borderRadius: 14,
+    padding: '24px 20px',
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  goldText: {
+    color: '#D4AF37',
+    fontSize: 18,
+  },
+  modalTitle: {
+    color: '#F5F0E8',
+    fontSize: 17,
+    fontWeight: 700,
+    margin: 0,
+  },
+  modalDesc: {
+    color: '#aaa',
+    fontSize: 13,
+    lineHeight: 1.5,
+    marginBottom: 20,
+    paddingLeft: 28,
+  },
+  formGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    display: 'block',
+    color: '#888',
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  select: {
+    width: '100%',
+    padding: '12px 14px',
+    backgroundColor: '#0D0D0D',
+    border: '1px solid #333',
+    borderRadius: 8,
+    color: '#F5F0E8',
+    fontSize: 15,
+    appearance: 'none',
+  },
+  input: {
+    width: '100%',
+    padding: '12px 14px',
+    backgroundColor: '#0D0D0D',
+    border: '1px solid #333',
+    borderRadius: 8,
+    color: '#F5F0E8',
+    fontSize: 20,
+    letterSpacing: 6,
+    boxSizing: 'border-box',
+  },
+  errorText: {
+    color: '#f44336',
+    fontSize: 13,
+    margin: '0 0 12px',
+  },
+  modalActions: {
+    display: 'flex',
+    gap: 10,
+    marginTop: 20,
+  },
+  btnSecondary: {
+    flex: 1,
+    padding: '12px',
+    backgroundColor: '#0D0D0D',
+    border: '1px solid #333',
+    borderRadius: 8,
+    color: '#888',
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  btnGold: {
+    flex: 1,
+    padding: '12px',
+    backgroundColor: '#D4AF37',
+    border: 'none',
+    borderRadius: 8,
+    color: '#0D0D0D',
+    fontSize: 15,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  btnGoldLarge: {
+    padding: '14px 28px',
+    backgroundColor: '#D4AF37',
+    border: 'none',
+    borderRadius: 10,
+    color: '#0D0D0D',
+    fontSize: 16,
+    fontWeight: 800,
+    cursor: 'pointer',
+    letterSpacing: 0.5,
+  },
+};

@@ -8,12 +8,12 @@ import {
   getPinLockout,
   setPinLockout,
   clearPinLockout,
+  updateEmployee,
 } from '../utils/storage';
-import { sendClockInEmail } from '../utils/emailjs';
 import { t, roleLabel } from '../utils/i18n';
 import './LoginScreen.css';
- 
-const PIN_ROLES = ['owner', 'manager'];
+
+// Every role now requires PIN entry to sign in.
 const MAX_ATTEMPTS = 3;
 const CLOCK_IN_ROLES = ['manager', 'leadBarista', 'barista', 'trainee'];
  
@@ -28,6 +28,12 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [lockout, setLockoutState] = useState({ attempts: 0, lockedUntil: null });
   const [currentTime, setCurrentTime] = useState(new Date());
+  // Forced PIN-change flow (first login when pin === '0000' or mustChangePin is set)
+  const [newPin, setNewPin]               = useState('');
+  const [confirmPin, setConfirmPin]       = useState('');
+  const [changeStep, setChangeStep]       = useState('enter'); // 'enter' | 'confirm'
+  const [changeError, setChangeError]     = useState('');
+  const [pendingEmployee, setPendingEmployee] = useState(null);
  
   // Live clock
   useEffect(() => {
@@ -53,9 +59,8 @@ export default function LoginScreen() {
   }, [selectedEmployeeId]);
  
   const selectedEmployee = employees.find(e => e.id === selectedEmployeeId) || null;
-  const requiresPin = selectedEmployee && PIN_ROLES.includes(selectedEmployee.role);
+  const requiresPin = !!selectedEmployee; // every role uses PIN now
   const isLocked = lockout.lockedUntil !== null;
-  const isOwner = selectedEmployee?.role === 'owner';
   const needsClockIn = selectedEmployee && CLOCK_IN_ROLES.includes(selectedEmployee.role);
  
   // Show clock-in UI only if:
@@ -105,6 +110,16 @@ export default function LoginScreen() {
     if (!selectedEmployee) return;
     if (entered === String(selectedEmployee.pin)) {
       clearPinLockout(selectedEmployee.id);
+      // Force a PIN change on first login (or anytime PIN is still the default).
+      if (selectedEmployee.mustChangePin || String(selectedEmployee.pin) === '0000') {
+        setPendingEmployee(selectedEmployee);
+        setNewPin('');
+        setConfirmPin('');
+        setChangeStep('enter');
+        setChangeError('');
+        setPhase('changePin');
+        return;
+      }
       doLogin(selectedEmployee);
     } else {
       const newAttempts = (lockout.attempts || 0) + 1;
@@ -127,6 +142,54 @@ export default function LoginScreen() {
     }
   }
  
+  // ─── First-login PIN change ───────────────────────────────
+  function handleChangePinDigit(digit) {
+    setChangeError('');
+    if (changeStep === 'enter') {
+      if (newPin.length >= 4) return;
+      const next = newPin + digit;
+      setNewPin(next);
+    } else {
+      if (confirmPin.length >= 4) return;
+      const next = confirmPin + digit;
+      setConfirmPin(next);
+      if (next.length === 4) {
+        setTimeout(() => finalizePinChange(next), 100);
+      }
+    }
+  }
+
+  function handleChangePinBack() {
+    setChangeError('');
+    if (changeStep === 'enter') setNewPin((p) => p.slice(0, -1));
+    else setConfirmPin((p) => p.slice(0, -1));
+  }
+
+  function advanceChangePin() {
+    if (newPin.length !== 4) {
+      setChangeError(language === 'es' ? 'Debe ser de 4 dígitos.' : 'Must be 4 digits.');
+      return;
+    }
+    if (newPin === '0000') {
+      setChangeError(language === 'es' ? 'Elige un PIN diferente al predeterminado.' : 'Pick a PIN other than the default.');
+      return;
+    }
+    setChangeStep('confirm');
+  }
+
+  function finalizePinChange(confirmed) {
+    if (confirmed !== newPin) {
+      setChangeError(language === 'es' ? 'Los PIN no coinciden. Intenta de nuevo.' : 'PINs do not match. Try again.');
+      setConfirmPin('');
+      return;
+    }
+    if (!pendingEmployee) return;
+    const updated = updateEmployee(pendingEmployee.id, { pin: newPin, mustChangePin: false });
+    if (updated) {
+      doLogin(updated);
+    }
+  }
+
   function doLogin(employee) {
     setPhase('loading');
     const clockInTime = new Date().toISOString();
@@ -192,10 +255,17 @@ export default function LoginScreen() {
     return t('signIn', language);
   };
  
+  // Brand block — single PNG seal carries all identity (wordmark, mark, est. date)
+  const renderBrand = () => (
+    <div className="ls-brand">
+      <img className="ls-brand-png" src="/quez-seal.png" alt="Quez Coffee Co." />
+    </div>
+  );
+
   if (phase === 'success') {
     return (
       <div className="ls-root ls-success-screen">
-        <div className="ls-seal">Q</div>
+        {renderBrand()}
         <p className="ls-success-name">
           {t('welcomeBack', language, selectedEmployee?.name)}
         </p>
@@ -206,14 +276,10 @@ export default function LoginScreen() {
       </div>
     );
   }
- 
+
   return (
     <div className="ls-root">
-      <div className="ls-header">
-        <div className="ls-seal">Q</div>
-        <h1 className="ls-title">{t('appName', language)}</h1>
-        <p className="ls-subtitle">{t('tagline', language)}</p>
-      </div>
+      {renderBrand()}
  
       <div className="ls-card">
         {phase === 'select' && (
@@ -305,9 +371,58 @@ export default function LoginScreen() {
             <p className="ls-loading-text">{t('clockingIn', language)}</p>
           </div>
         )}
+
+        {phase === 'changePin' && (
+          <div className="ls-pin-phase">
+            <div className="ls-pin-identity">
+              <p className="ls-pin-name">{pendingEmployee?.name}</p>
+              <p className="ls-pin-role" style={{ color: '#D4AF37' }}>
+                {language === 'es' ? 'Cambia tu PIN — primera vez' : 'Set a new PIN — first login'}
+              </p>
+            </div>
+            <p className="ls-pin-prompt">
+              {changeStep === 'enter'
+                ? (language === 'es' ? 'Nuevo PIN de 4 dígitos' : 'Enter new 4-digit PIN')
+                : (language === 'es' ? 'Confirma tu PIN nuevo' : 'Confirm your new PIN')}
+            </p>
+            <div className="ls-pin-dots">
+              {[0, 1, 2, 3].map((i) => {
+                const cur = changeStep === 'enter' ? newPin : confirmPin;
+                return <span key={i} className={'ls-pin-dot ' + (i < cur.length ? 'filled' : '')} />;
+              })}
+            </div>
+            {changeError && <div className="ls-error">{changeError}</div>}
+            <div className="ls-numpad">
+              {['1','2','3','4','5','6','7','8','9','','0','back'].map((d, i) => {
+                if (d === '') return <span key={i} className="ls-numpad-spacer" />;
+                if (d === 'back') return (
+                  <button key={i} className="ls-numpad-key ls-numpad-back" onClick={handleChangePinBack}>
+                    &#9003;
+                  </button>
+                );
+                return (
+                  <button key={i} className="ls-numpad-key" onClick={() => handleChangePinDigit(d)}>
+                    {d}
+                  </button>
+                );
+              })}
+            </div>
+            {changeStep === 'enter' && (
+              <button
+                className="ls-btn-primary"
+                style={{ marginTop: 14, opacity: newPin.length === 4 ? 1 : 0.5 }}
+                onClick={advanceChangePin}
+                disabled={newPin.length !== 4}
+              >
+                {language === 'es' ? 'Continuar' : 'Continue'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
  
-      <p className="ls-footer">Quez Coffee Co. LLC · Veteran-Owned</p>
+      <p className="ls-tagline">Artisan Made · Purpose Blended</p>
+      <p className="ls-footer">Quez Coffee Co. LLC · Veteran-Owned · Council Bluffs, IA</p>
     </div>
   );
 }

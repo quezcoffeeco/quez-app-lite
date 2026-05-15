@@ -19,6 +19,14 @@ import {
   loadTodayFlaggedItems,
   buildTimeClockReport,
   markPunchesSent,
+  buildDailyDrinkReport,
+  getTodayDrinkTally,
+  getReportRecipients,
+  getStorageHealth,
+  isEmailJsConfigured,
+  getHandoffNotes,
+  getPendingSwapCount,
+  getLowStockItems,
   isDailyChecklistSubmittedToday,
   loadChecklistState,
   isWeeklyChecklistDue,
@@ -32,13 +40,10 @@ import {
   getSettings,
 } from '../utils/storage';
 import { sendQuezEmail } from '../utils/emailjs';
+import { fmtClock } from '../utils/timeFormat';
 
 // ── Helpers ───────────────────────────────────────────────────
-function formatTime(isoString) {
-  if (!isoString) return '—';
-  const d = new Date(isoString);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-}
+const formatTime = (iso) => iso ? fmtClock(iso) : '—';
 
 function formatDuration(clockIn, clockOut) {
   if (!clockIn || !clockOut) return null;
@@ -324,6 +329,14 @@ export default function OwnerDashboard() {
   const [sendingReport, setSendingReport] = useState(false);
   const [reportSent, setReportSent] = useState(false);
   const [reportCount, setReportCount] = useState(0);
+  const [drinkTally, setDrinkTally] = useState({});
+  const [drinkTotal, setDrinkTotal] = useState(0);
+  const [sendingDrinkReport, setSendingDrinkReport] = useState(false);
+  const [drinkReportSent, setDrinkReportSent] = useState(false);
+  const [handoffs, setHandoffs] = useState([]);
+  const [pendingSwapCount, setPendingSwapCountState] = useState(0);
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const [storageHealth, setStorageHealth] = useState(null);
 
 
   const loadData = useCallback(() => {
@@ -335,7 +348,18 @@ export default function OwnerDashboard() {
     const report = buildTimeClockReport();
     setReportCount(report?.count || 0);
 
+    // Today's drink tally
+    const tally = getTodayDrinkTally();
+    setDrinkTally(tally);
+    setDrinkTotal(Object.values(tally).reduce((sum, t) => sum + t.total, 0));
 
+    // Hand-off log + pending swaps + low-stock
+    setHandoffs(getHandoffNotes().slice(0, 5));
+    setPendingSwapCountState(getPendingSwapCount());
+    setLowStockCount(getLowStockItems().length);
+
+    // Storage health (async — fire and forget)
+    getStorageHealth().then(setStorageHealth).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -354,16 +378,19 @@ export default function OwnerDashboard() {
       return;
     }
     try {
-      await sendQuezEmail({
-        subject: report.subject,
-        templateParams: {
+      for (const to of getReportRecipients()) {
+        await sendQuezEmail({
           subject: report.subject,
-          message: report.body,
-          operator: session?.name || 'Owner',
-          location,
-          timestamp: new Date().toISOString(),
-        },
-      });
+          templateParams: {
+            to_email: to,
+            subject: report.subject,
+            message: report.body,
+            operator: session?.name || 'Owner',
+            location,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
     } catch (e) {
       console.warn('Time clock report queued:', e);
     }
@@ -371,6 +398,31 @@ export default function OwnerDashboard() {
     setSendingReport(false);
     setReportSent(true);
     setReportCount(0);
+  }
+
+  // ── Daily Drink Report ────────────────────────────────────
+  async function handleSendDrinkReport() {
+    setSendingDrinkReport(true);
+    const report = buildDailyDrinkReport();
+    try {
+      for (const to of getReportRecipients()) {
+        await sendQuezEmail({
+          subject: report.subject,
+          templateParams: {
+            to_email: to,
+            subject: report.subject,
+            message: report.body,
+            operator: session?.name || 'Owner',
+            location,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+    } catch (e) {
+      console.warn('Drink report queued:', e);
+    }
+    setSendingDrinkReport(false);
+    setDrinkReportSent(true);
   }
 
   // ── Periodic checklist rows config ───────────────────────
@@ -421,6 +473,107 @@ export default function OwnerDashboard() {
           </button>
         </div>
       </div>
+
+      {/* ── Alert Tiles ── */}
+      {(pendingSwapCount > 0 || lowStockCount > 0 || handoffs.length > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, padding: '12px 16px 0' }}>
+          <div style={{ background: '#111', border: '1px solid ' + (pendingSwapCount > 0 ? '#D4AF37' : '#2A2A2A'), borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Cambios' : 'Swaps'}</div>
+            <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: pendingSwapCount > 0 ? '#D4AF37' : '#555', fontWeight: 700 }}>{pendingSwapCount}</div>
+            <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'pendientes' : 'pending'}</div>
+          </div>
+          <div style={{ background: '#111', border: '1px solid ' + (lowStockCount > 0 ? '#E05252' : '#2A2A2A'), borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Stock' : 'Stock'}</div>
+            <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: lowStockCount > 0 ? '#E05252' : '#555', fontWeight: 700 }}>{lowStockCount}</div>
+            <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'bajo par' : 'below par'}</div>
+          </div>
+          <div style={{ background: '#111', border: '1px solid ' + (handoffs.length > 0 ? '#D4AF37' : '#2A2A2A'), borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Notas' : 'Hand-offs'}</div>
+            <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: handoffs.length > 0 ? '#D4AF37' : '#555', fontWeight: 700 }}>{handoffs.length}</div>
+            <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'últimas 24h' : 'last 24h'}</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Storage health banner — only shows when there's something to act on ── */}
+      {storageHealth && (() => {
+        const lastBackup = storageHealth.lastBackupAt ? new Date(storageHealth.lastBackupAt) : null;
+        const daysSince = lastBackup ? Math.floor((Date.now() - lastBackup.getTime()) / 86400000) : null;
+        const emailReady     = isEmailJsConfigured();
+        const noBackup       = !lastBackup;
+        const staleBackup    = daysSince !== null && daysSince >= 7;
+        const notPersistent  = !storageHealth.isPersistent;
+        const isNoisyStorage = storageHealth.percent > 80;
+        const autoStatus     = storageHealth.autoBackupStatus;
+        const autoTooBig     = autoStatus?.state === 'too_big';
+        const autoFailed     = autoStatus?.state === 'failed';
+        const hasIssue = !emailReady || noBackup || staleBackup || notPersistent || isNoisyStorage || autoTooBig || autoFailed;
+        if (!hasIssue) return null;
+        return (
+          <div style={{ margin: '8px 16px 0', padding: '10px 13px', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.40)', borderRadius: 10 }}>
+            <div style={{ fontSize: 11, color: '#D4AF37', fontWeight: 800, letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 6 }}>
+              💾 Data Health
+            </div>
+            <div style={{ fontSize: 12, color: '#ddd', lineHeight: 1.5 }}>
+              {!emailReady && (
+                <div style={{ color: '#FFB3B3' }}>
+                  · {isSpanish
+                      ? 'EmailJS no está configurado — los respaldos automáticos no se pueden enviar. Configura en Ajustes → Email.'
+                      : 'EmailJS not configured — auto-backups can\'t send. Set up in Settings → Email Configuration.'}
+                </div>
+              )}
+              {emailReady && noBackup && <div>· {isSpanish ? 'No has hecho un respaldo todavía.' : "You haven't exported a backup yet."}</div>}
+              {emailReady && !noBackup && staleBackup && <div>· {isSpanish ? `Último respaldo hace ${daysSince} días.` : `Last backup was ${daysSince} days ago.`}</div>}
+              {autoTooBig && (
+                <div style={{ color: '#FFB3B3' }}>
+                  · {isSpanish
+                      ? `El respaldo automático excede el límite del correo (${(autoStatus.sizeBytes / 1024).toFixed(0)} KB). Solo se envía una alerta — exporta manualmente.`
+                      : `Auto-backup exceeds email body limit (${(autoStatus.sizeBytes / 1024).toFixed(0)} KB). Only an alert is sending — export manually to retain data.`}
+                </div>
+              )}
+              {autoFailed && (
+                <div style={{ color: '#FFB3B3' }}>
+                  · {isSpanish
+                      ? `El último envío automático falló: ${autoStatus.error || 'error desconocido'}.`
+                      : `Last auto-backup send failed: ${autoStatus.error || 'unknown error'}.`}
+                </div>
+              )}
+              {notPersistent && <div>· {isSpanish ? 'El navegador podría descartar los datos sin protección persistente.' : 'Browser may evict data without persistent protection.'}</div>}
+              {isNoisyStorage && <div>· {isSpanish ? `${storageHealth.percent}% del almacenamiento usado.` : `${storageHealth.percent}% of storage used.`}</div>}
+            </div>
+            <button
+              style={{ marginTop: 8, background: 'transparent', border: '1px solid #D4AF37', color: '#D4AF37', borderRadius: 7, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+              onClick={() => navigate('settings')}
+            >
+              {!emailReady
+                ? (isSpanish ? 'Abrir Email' : 'Open Email Settings')
+                : (isSpanish ? 'Abrir Datos y Respaldo' : 'Open Data & Backup')}
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* ── Hand-off Notes (recent 24h) ── */}
+      {handoffs.length > 0 && (
+        <div style={S.panel}>
+          <div style={S.panelHeader}>
+            <span style={S.panelIcon}>📝</span>
+            <h2 style={S.panelTitle}>{isSpanish ? 'Notas de Hand-off' : 'Hand-off Notes'}</h2>
+          </div>
+          <div style={S.panelBody}>
+            {handoffs.map((h) => (
+              <div key={h.id} style={{ padding: '10px 12px', background: '#0D0D0D', border: '1px solid #222', borderRadius: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: '#D4AF37', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 4 }}>
+                  {h.byName} · {new Date(h.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </div>
+                <div style={{ fontSize: 13, color: '#F5F0E8', fontStyle: 'italic', lineHeight: 1.45 }}>
+                  "{h.text}"
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Panel 1: Daily Checklist Status ── */}
       <div style={S.panel}>
@@ -649,6 +802,58 @@ export default function OwnerDashboard() {
               onClick={handleSendTimeClockReport}
             >
               {isSpanish ? 'Enviar Reporte de Tiempo' : 'Send Time Clock Report'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Panel 6: Daily Drink Report ── */}
+      <div style={S.panel}>
+        <div style={S.panelHeader}>
+          <span style={S.panelIcon}>☕</span>
+          <h2 style={S.panelTitle}>
+            {isSpanish ? 'Reporte Diario de Bebidas' : 'Daily Drink Report'}
+          </h2>
+        </div>
+        <div style={S.panelBody}>
+          <p style={S.reportSub}>
+            {drinkTotal > 0
+              ? (isSpanish
+                  ? `${drinkTotal} bebida${drinkTotal !== 1 ? 's' : ''} servida${drinkTotal !== 1 ? 's' : ''} hoy en ${Object.keys(drinkTally).length} variedad${Object.keys(drinkTally).length !== 1 ? 'es' : ''}.`
+                  : `${drinkTotal} drink${drinkTotal !== 1 ? 's' : ''} served today across ${Object.keys(drinkTally).length} variet${Object.keys(drinkTally).length !== 1 ? 'ies' : 'y'}.`)
+              : (isSpanish
+                  ? 'Aún no se han servido bebidas hoy.'
+                  : 'No drinks have been served yet today.')}
+          </p>
+
+          {drinkTotal > 0 && (
+            <div style={{ background: '#0D0D0D', border: '1px solid #222', borderRadius: 8, padding: '10px 12px', margin: '8px 0 12px', maxHeight: 200, overflowY: 'auto' }}>
+              {Object.keys(drinkTally)
+                .sort((a, b) => drinkTally[b].total - drinkTally[a].total)
+                .map((name) => (
+                  <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+                    <span style={{ color: '#ddd' }}>{name}</span>
+                    <span style={{ color: '#D4AF37', fontWeight: 700 }}>{drinkTally[name].total}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          {drinkReportSent ? (
+            <div style={S.reportSent}>
+              ✅ {isSpanish ? 'Reporte enviado correctamente.' : 'Report sent successfully.'}
+            </div>
+          ) : sendingDrinkReport ? (
+            <div style={S.reportSending}>
+              {isSpanish ? 'Enviando reporte...' : 'Sending report...'}
+            </div>
+          ) : (
+            <button
+              style={drinkTotal > 0 ? S.reportBtn : S.reportBtnDisabled}
+              disabled={drinkTotal === 0}
+              onClick={handleSendDrinkReport}
+            >
+              {isSpanish ? 'Enviar Reporte de Bebidas' : 'Send Drink Report'}
             </button>
           )}
         </div>

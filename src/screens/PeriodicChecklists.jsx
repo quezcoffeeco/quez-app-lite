@@ -40,10 +40,11 @@ import {
   savePeriodicChecklistRecord,
 } from '../utils/storage';
 import { sendQuezEmail } from '../utils/emailjs';
+import { fmtClock } from '../utils/timeFormat';
 import '../styles/periodic.css';
 
 // ── Role helpers ─────────────────────────────────────────────
-const ROLE_RANK = { owner: 4, manager: 3, lead_barista: 2, barista: 1, trainee: 0 };
+const ROLE_RANK = { owner: 4, manager: 3, leadBarista: 2, barista: 1, trainee: 0 };
 
 function hasRank(userRole, minRole) {
   return (ROLE_RANK[userRole] || 0) >= (ROLE_RANK[minRole] || 0);
@@ -55,7 +56,7 @@ const CHECKLISTS = [
     key: 'weekly',
     label: 'Weekly',
     label_es: 'Semanal',
-    minRole: 'lead_barista',
+    minRole: 'leadBarista',
     isDue: isWeeklyChecklistDue,
     isSubmitted: isWeeklySubmittedThisWeek,
     markSubmitted: markWeeklySubmitted,
@@ -139,6 +140,9 @@ export default function PeriodicChecklists() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [sending, setSending] = useState(false);
   const [submitted, setSubmitted] = useState(false); // local echo after submit in session
+  // Owner/manager can force-start a checklist outside its normal cadence
+  const [forceStarted, setForceStarted] = useState({});  // { [tabKey]: bool }
+  const canForceStart = userRole === 'owner' || userRole === 'manager';
 
   const config = CHECKLISTS.find((c) => c.key === activeTab);
 
@@ -208,7 +212,7 @@ export default function PeriodicChecklists() {
     const dateStr = now.toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = fmtClock(now);
 
     let body = `QUEZ COFFEE CO. — ${config.label.toUpperCase()} CHECKLIST\n`;
     body += `${'='.repeat(52)}\n`;
@@ -292,7 +296,7 @@ export default function PeriodicChecklists() {
   }
 
   // ── Role gate ────────────────────────────────────────────────
-  if (!hasRank(userRole, 'lead_barista')) {
+  if (!hasRank(userRole, 'leadBarista')) {
     return (
       <div className="periodic-screen">
         <div className="periodic-role-gate">
@@ -310,7 +314,8 @@ export default function PeriodicChecklists() {
     );
   }
 
-  const isDue = config?.isDue();
+  const naturallyDue       = config?.isDue();
+  const isDue              = naturallyDue || forceStarted[activeTab];
   const isAlreadySubmitted = submitted || config?.isSubmitted();
 
   // ── Section groups ───────────────────────────────────────────
@@ -408,6 +413,27 @@ export default function PeriodicChecklists() {
           <p className="periodic-not-due__body">
             {isSpanish ? config.notDueMsg_es : config.notDueMsg}
           </p>
+          {canForceStart && (
+            <button
+              style={{
+                marginTop: 16,
+                background: 'linear-gradient(180deg, #E6C661, #D4AF37)',
+                color: '#0D0D0D',
+                border: 'none',
+                borderRadius: 12,
+                padding: '11px 22px',
+                fontWeight: 800,
+                fontSize: 13,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+              onClick={() => setForceStarted((p) => ({ ...p, [activeTab]: true }))}
+            >
+              ▶ {isSpanish ? 'Iniciar Ahora' : 'Start Now'}
+            </button>
+          )}
         </div>
       )}
 
