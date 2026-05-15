@@ -258,7 +258,7 @@ export default function LoginScreen() {
   // Brand block — single PNG seal carries all identity (wordmark, mark, est. date)
   const renderBrand = () => (
     <div className="ls-brand">
-      <img className="ls-brand-png" src="/quez-seal.png" alt="Quez Coffee Co." />
+      <img className="ls-brand-png" src={`${process.env.PUBLIC_URL}/quez-seal.png`} alt="Quez Coffee Co." />
     </div>
   );
 
