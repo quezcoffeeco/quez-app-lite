@@ -114,6 +114,13 @@ function TrainerCountersignModal({ lang, onConfirm, onCancel, title, description
               <option key={e.id} value={e.name}>{e.name} ({e.role})</option>
             ))}
           </select>
+          {eligibleTrainers.length === 0 && (
+            <p style={{ color: '#FFB3B3', fontSize: 12, marginTop: 6 }}>
+              {lang === 'es'
+                ? 'No hay entrenadores elegibles. Asegúrate de tener al menos un dueño / gerente / lead barista activo en Configuración → Empleados.'
+                : 'No eligible trainers. Make sure at least one owner / manager / lead barista is active in Settings → Employees.'}
+            </p>
+          )}
         </div>
 
         {trainerName && (() => {

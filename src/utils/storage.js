@@ -84,6 +84,18 @@ export const initializeStorage = () => {
     });
     if (changed) storageSet(EMPLOYEES_KEY, employees);
   }
+  // Self-heal: ensure at least one active owner exists. If somebody removed
+  // Ryan or never had an owner record (e.g. partial restore from backup),
+  // the seeded owner gets re-added. Without this the trainer dropdown in
+  // Training Portal + Settings would be empty and trainees can't be signed off.
+  const empsCheck = storageGet(EMPLOYEES_KEY);
+  if (Array.isArray(empsCheck)) {
+    const hasActiveOwner = empsCheck.some((e) => e && e.role === 'owner' && e.active !== false);
+    if (!hasActiveOwner) {
+      empsCheck.push(DEFAULT_EMPLOYEES[0]);
+      storageSet(EMPLOYEES_KEY, empsCheck);
+    }
+  }
   // Cleanup orphaned training records saved before AppContext exposed currentUser.
   try { localStorage.removeItem('quez_training_undefined'); } catch {}
   try { localStorage.removeItem('quez_phase2_progress_undefined'); } catch {}
