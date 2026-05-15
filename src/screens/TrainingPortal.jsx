@@ -14,6 +14,7 @@ import {
   savePhase3Progress,
   loadPhase3Progress,
   clearPhase3Progress,
+  getEmployees,
 } from '../utils/storage';
 import { sendQuezEmail } from '../utils/emailjs';
 
@@ -58,14 +59,17 @@ function formatDate(iso) {
 // Trainer selects their name and enters their PIN (Owner/Manager only can countersign)
 // ─────────────────────────────────────────────────────────────────────────────
 function TrainerCountersignModal({ lang, onConfirm, onCancel, title, description }) {
-  const { employees } = useApp();
+  // AppContext doesn't expose `employees`; read directly from storage so the
+  // dropdown is always populated. Sort owner → manager → leadBarista so the
+  // operator setting up their first hire sees themselves at the top.
+  const trainerRank = { owner: 0, manager: 1, leadBarista: 2 };
+  const eligibleTrainers = (getEmployees() || [])
+    .filter((e) => e.active !== false && (e.role === 'owner' || e.role === 'manager' || e.role === 'leadBarista'))
+    .sort((a, b) => (trainerRank[a.role] ?? 9) - (trainerRank[b.role] ?? 9));
+
   const [trainerName, setTrainerName] = useState('');
   const [trainerPin, setTrainerPin] = useState('');
   const [error, setError] = useState('');
-
-  const eligibleTrainers = (employees || []).filter(
-    (e) => e.active !== false && (e.role === 'owner' || e.role === 'manager' || e.role === 'leadBarista')
-  );
 
   const handleConfirm = () => {
     if (!trainerName) {
