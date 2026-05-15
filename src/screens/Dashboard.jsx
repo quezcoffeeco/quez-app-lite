@@ -1019,6 +1019,9 @@ const S = {
     display: 'flex',
     alignItems: 'center',
     gap: 14,
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
   },
   avatar: {
     width: 52,
