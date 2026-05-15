@@ -22,8 +22,12 @@ html, body, #root {
   position: relative;
 }
 
-/* Content area scrolls naturally; bottom padding clears the fixed nav */
+/* Content area scrolls naturally.
+   Top padding clears the iPhone camera island / Dynamic Island / notch —
+   without this, every screen's header would render behind it.
+   Bottom padding clears the fixed nav. */
 .app-content {
+  padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px));
 }
 

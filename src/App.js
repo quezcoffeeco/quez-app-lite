@@ -285,7 +285,7 @@ const backBtnStyles = {
   bar: {
     background: '#0D0D0D',
     borderBottom: '1px solid rgba(212,175,55,0.10)',
-    padding: 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px',
+    padding: '8px 12px',
     display: 'flex',
     alignItems: 'center',
     position: 'sticky',
