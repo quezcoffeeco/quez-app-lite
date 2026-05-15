@@ -126,10 +126,14 @@ function EmployeeModal({emp, employees, onSave, onClose}) {
   const [birthday, setBirthday] = useState(emp?.birthday || ''); // MM-DD format
   const [err, setErr] = useState({});
 
-  // Potential trainers — owner / manager / lead barista, active only
-  const potentialTrainers = employees.filter((e) =>
-    e.active && (e.role === 'owner' || e.role === 'manager' || e.role === 'leadBarista')
-  );
+  // Potential trainers — owner / manager / lead barista.
+  // `active !== false` so legacy records without an explicit `active` field
+  // (older seeded owners, etc.) still appear. Sorted owner-first so the
+  // operator setting up their first hire sees themselves at the top.
+  const trainerRank = { owner: 0, manager: 1, leadBarista: 2 };
+  const potentialTrainers = employees
+    .filter((e) => e.active !== false && (e.role === 'owner' || e.role === 'manager' || e.role === 'leadBarista'))
+    .sort((a, b) => (trainerRank[a.role] ?? 9) - (trainerRank[b.role] ?? 9));
 
   function save() {
     const e = {};
