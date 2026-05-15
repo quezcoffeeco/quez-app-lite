@@ -557,7 +557,6 @@ export const getPeriodicChecklistRecords = () => {
 
 const TRAINING_KEY_PREFIX = 'quez_training_';
 const QUIZ_LOCKOUT_PREFIX  = 'quez_quiz_lockout_';
-const QUIZ_LOCKOUT_HOURS   = 24;
 
 // ── Training record helpers ───────────────────────────────
 
@@ -592,11 +591,15 @@ export const isPhase3Complete = (employeeId) =>
   getTrainingRecord(employeeId).phase3.passed === true;
 
 // ── Quiz lockout helpers ──────────────────────────────────
+// Unlimited attempts policy: lockout is disabled app-wide. The setters
+// are no-ops and getQuizLockoutInfo always reports unlocked. Any
+// previously-written lockout key is cleared on read so trainees who
+// were locked when this shipped immediately get a retry.
 
 export const setQuizLockout = (employeeId) => {
-  localStorage.setItem(QUIZ_LOCKOUT_PREFIX + employeeId, JSON.stringify({
-    lockedAt: new Date().toISOString(),
-  }));
+  // No-op — unlimited quiz attempts. Still clear any stale lockout
+  // key for this employee so they're not held under the old policy.
+  localStorage.removeItem(QUIZ_LOCKOUT_PREFIX + employeeId);
 };
 
 export const clearQuizLockout = (employeeId) => {
@@ -604,20 +607,9 @@ export const clearQuizLockout = (employeeId) => {
 };
 
 export const getQuizLockoutInfo = (employeeId) => {
-  const raw = localStorage.getItem(QUIZ_LOCKOUT_PREFIX + employeeId);
-  if (!raw) return { isLocked: false, remainingHours: 0, remainingMinutes: 0 };
-  const { lockedAt } = JSON.parse(raw);
-  const elapsed = (Date.now() - new Date(lockedAt).getTime()) / 1000 / 3600;
-  if (elapsed >= QUIZ_LOCKOUT_HOURS) {
-    clearQuizLockout(employeeId);
-    return { isLocked: false, remainingHours: 0, remainingMinutes: 0 };
-  }
-  const remaining = QUIZ_LOCKOUT_HOURS - elapsed;
-  return {
-    isLocked: true,
-    remainingHours: Math.floor(remaining),
-    remainingMinutes: Math.floor((remaining % 1) * 60),
-  };
+  // Always unlocked. Clean up any old lockout key on the way through.
+  if (employeeId) localStorage.removeItem(QUIZ_LOCKOUT_PREFIX + employeeId);
+  return { isLocked: false, remainingHours: 0, remainingMinutes: 0 };
 };
 
 // ── Training bypass — applies to employee on login / app load ─
