@@ -64,7 +64,7 @@ export const MODIFIER_GROUPS = [
       { id: 'whip',           label: { en: 'Whipped cream',         es: 'Crema batida' },
         requires: (d) => !!d?.tags?.acceptsWhip },
       { id: 'honey_drizzle',  label: { en: 'Honey drizzle on top',  es: 'Drizzle de miel encima' },
-        requires: (d) => !!d?.tags?.containsHoney },
+        requires: (d) => !!d?.tags?.containsHoney || !!d?.tags?.acceptsHoneyUpsell },
       { id: 'caramel_drizzle',label: { en: 'Caramel drizzle on top',es: 'Drizzle de caramelo encima' },
         requires: (d) => !!d?.tags?.containsCaramel },
       { id: 'cinnamon_dust',  label: { en: 'Cinnamon dust on top',  es: 'Polvo de canela encima' },

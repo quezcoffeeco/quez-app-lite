@@ -783,6 +783,117 @@ export const drinkRecipes = [
     },
     tip: 'Warm-water dissolve is MANDATORY. Strawberry puree will NOT mix into cold lemonade — without it you get pure puree at the bottom and weak lemonade on top. Lemonade base goes in before ice.',
   },
+  {
+    id: 'drk_16',
+    name: 'Hot Chocolate',
+    category: 'Non-Coffee',
+    prepType: 'Hot Only',
+    buildTime: '45s',
+    price12: 4.95,
+    price16: 5.55,
+    allergens: 'Dairy (default). Contains milk and dairy whipped cream. If honey customize added: contains honey.',
+    tags: {
+      // Non-coffee, family-friendly. Honey is an OPTIONAL customize, not
+      // the headline — Quez Hot Chocolate sells as the chocolate-first
+      // drink it is, with the honey twist available for customers who ask.
+      usesEspresso: false,
+      usesColdBrew: false,
+      usesMilk: true,
+      usesIce: false,
+      acceptsWhip: true,
+      containsMocha: true,
+      containsWhiteChocolate: true,
+      acceptsHoneyUpsell: true,
+    },
+    ingredients: {
+      '12oz': [
+        '2 pumps mocha sauce (Ghirardelli)',
+        '1 pump white chocolate sauce (Ghirardelli)',
+        '8 oz whole milk steamed to 150°F (or oat 140-145°F, +$0.65)',
+        'Whipped cream swirl on top',
+        'Mocha drizzle — clean spiral over whipped cream',
+        'OPTIONAL customize: 1 pump honey syrup (+$0.45) for a Quez twist',
+      ],
+      '16oz': [
+        '3 pumps mocha sauce (Ghirardelli)',
+        '1 pump white chocolate sauce (Ghirardelli)',
+        '10 oz whole milk steamed to 150°F (or oat 140-145°F, +$0.65)',
+        'Whipped cream swirl on top',
+        'Mocha drizzle — clean spiral over whipped cream',
+        'OPTIONAL customize: 2 pumps honey syrup (+$0.45) for a Quez twist',
+      ],
+    },
+    buildSteps: {
+      hot: [
+        'Pump mocha sauce and white chocolate sauce into cup',
+        'If honey customize requested: pump honey syrup into cup as well',
+        'Steam milk to 150°F (oat 140-145°F)',
+        'Pour milk over sauces in a slow, controlled stream — stir gently to integrate',
+        'Whipped cream swirl on top',
+        'Mocha drizzle — clean spiral over whipped cream',
+        'Lid, sleeve, pass',
+      ],
+    },
+    tip: 'Chocolate-first drink with a Quez option. Honey is a customize, not the default — only add when the customer asks. Whip + drizzle is the standard finish, not optional. Kids size (8 oz, kids temp ≤150°F, no whip on request) available at $3.25.',
+  },
+  {
+    id: 'drk_17',
+    name: 'Matcha Latte',
+    category: 'Non-Coffee',
+    prepType: 'Hot & Iced',
+    buildTime: 'Hot: 55s · Iced: 50s',
+    price12: 5.95,
+    price16: 6.55,
+    allergens: 'Dairy (default). Contains green tea / matcha. Oat milk substitution available (+$0.65). If honey customize added: contains honey.',
+    tags: {
+      // Premium tea drink — no espresso, no cold brew. Milk-based.
+      // Vanilla and honey are both customize options, neither is in the
+      // base recipe. Pure matcha presentation by default.
+      usesEspresso: false,
+      usesColdBrew: false,
+      usesMilk: true,
+      usesIce: true,
+      acceptsWhip: false,
+      containsTea: true,
+      acceptsHoneyUpsell: true,
+    },
+    ingredients: {
+      '12oz': [
+        '1.5 g culinary-grade matcha powder (Aiya Cooking Grade — sifted)',
+        '2 oz hot water at 175°F (NEVER boiling — destroys flavor)',
+        '8 oz whole milk steamed to 150°F (or oat 140-145°F, +$0.65)',
+        'OPTIONAL customize: 1 pump vanilla syrup (+$0.45) or 1 pump honey syrup (+$0.45)',
+      ],
+      '16oz': [
+        '2 g culinary-grade matcha powder (Aiya Cooking Grade — sifted)',
+        '2 oz hot water at 175°F (NEVER boiling — destroys flavor)',
+        '10 oz whole milk steamed to 150°F (or oat 140-145°F, +$0.65)',
+        'OPTIONAL customize: 2 pumps vanilla syrup or honey syrup (+$0.45)',
+      ],
+    },
+    buildSteps: {
+      hot: [
+        'Sift matcha powder into shot bowl: 1.5 g (12 oz) / 2 g (16 oz) — sifting is MANDATORY',
+        'Add 2 oz water at 175°F (water-temp kettle setting; NEVER use boiling water)',
+        'Whisk vigorously in a W or M motion (NOT circular) for 20-30 sec — must be smooth and lightly frothy, no clumps',
+        'If vanilla or honey customize requested: pump syrup into cup BEFORE matcha',
+        'Pour whisked matcha into cup',
+        'Steam milk to 150°F (oat 140-145°F)',
+        'Pour steamed milk on top — slow stream for the matcha-and-cream visual',
+        'Lid, sleeve, pass',
+      ],
+      iced: [
+        'Sift matcha powder into shot bowl: 1.5 g (12 oz) / 2 g (16 oz) — sifting is MANDATORY',
+        'Add 2 oz water at 175°F; whisk W/M motion 20-30 sec — smooth, no clumps',
+        'If vanilla or honey customize: pump syrup into cup; if honey, add 0.5 oz of the hot water from above to dissolve, stir 10 sec',
+        'Add cold milk to cup: 5 oz (12 oz cup) / 7 oz (16 oz cup) — marked pitcher',
+        'Fill cup with ice to 3/4 mark',
+        'Pour the whisked matcha SLOWLY over the milk + ice — creates the layered green-on-white visual customers photograph',
+        'Lid, straw, pass — instruct customer to stir before drinking',
+      ],
+    },
+    tip: 'CULINARY-grade matcha (Aiya Cooking Grade) — never ceremonial for daily lattes; cost burn is the difference between a 78% margin and a 50%. Water 175°F never boiling. Sift EVERY time — clumps are the #1 matcha latte complaint. Whisk is W/M motion, not circular. Vanilla and honey are popular customize asks — always offer.',
+  },
 ];
 
 export const DRINK_CATEGORIES = [
