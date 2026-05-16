@@ -11,7 +11,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { drinkRecipes, DRINK_CATEGORIES, PREP_TYPE_COLORS } from '../data/drinkRecipes';
-import { MODIFIER_GROUPS, getModLabel, visibleOptions } from '../data/drinkModifiers';
+import { MODIFIER_GROUPS, getModLabel, visibleOptions, visibleGroups } from '../data/drinkModifiers';
 import { fmtClock } from '../utils/timeFormat';
 import {
   getActiveOrders,
@@ -145,7 +145,7 @@ export default function OrderScreen() {
     setPickerPrep(newPrep);
     setPickerMods((prev) => {
       const tempIceGroup = MODIFIER_GROUPS.find((g) => g.id === 'temp_ice');
-      const stillVisible = new Set(visibleOptions(tempIceGroup, newPrep).map((o) => o.id));
+      const stillVisible = new Set(visibleOptions(tempIceGroup, newPrep, pickerDrink).map((o) => o.id));
       const tempIceIds = new Set(tempIceGroup.options.map((o) => o.id));
       return prev.filter((id) => !tempIceIds.has(id) || stillVisible.has(id));
     });
@@ -677,41 +677,52 @@ export default function OrderScreen() {
             </>
           )}
 
-          {/* Modifier groups */}
+          {/* Modifier groups — only the ones that apply to THIS drink */}
           <div style={S.modsSection}>
             <div style={S.modsHeader}>
               {lang === 'es' ? 'Personalizar (opcional)' : 'Customize (optional)'}
             </div>
-            {MODIFIER_GROUPS.map((group) => {
-              const opts = visibleOptions(group, pickerPrep);
-              if (opts.length === 0) return null;
-              return (
-                <div key={group.id} style={S.modGroup}>
-                  <div style={S.modGroupLabel}>{group.label[lang]}</div>
-                  <div style={S.modOptionsRow}>
-                    {opts.map((opt) => {
-                      const selected = pickerMods.includes(opt.id);
-                      return (
-                        <button
-                          key={opt.id}
-                          style={{
-                            ...S.modOption,
-                            ...(selected ? {
-                              background: group.color + '22',
-                              border: `1px solid ${group.color}`,
-                              color: group.color,
-                            } : {}),
-                          }}
-                          onClick={() => toggleMod(group, opt.id)}
-                        >
-                          {opt.label[lang]}
-                        </button>
-                      );
-                    })}
+            {(() => {
+              const groupsForDrink = visibleGroups(pickerPrep, pickerDrink);
+              if (groupsForDrink.length === 0) {
+                return (
+                  <div style={{ fontSize: 12, color: '#888', padding: '8px 0', lineHeight: 1.5 }}>
+                    {lang === 'es'
+                      ? 'No hay opciones rápidas para esta bebida — usa el campo de Notas abajo para personalizar.'
+                      : 'No quick options for this drink — use the Notes field below to customize.'}
                   </div>
-                </div>
-              );
-            })}
+                );
+              }
+              return groupsForDrink.map((group) => {
+                const opts = visibleOptions(group, pickerPrep, pickerDrink);
+                return (
+                  <div key={group.id} style={S.modGroup}>
+                    <div style={S.modGroupLabel}>{group.label[lang]}</div>
+                    <div style={S.modOptionsRow}>
+                      {opts.map((opt) => {
+                        const selected = pickerMods.includes(opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            style={{
+                              ...S.modOption,
+                              ...(selected ? {
+                                background: group.color + '22',
+                                border: `1px solid ${group.color}`,
+                                color: group.color,
+                              } : {}),
+                            }}
+                            onClick={() => toggleMod(group, opt.id)}
+                          >
+                            {opt.label[lang]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
 
             {/* Custom modifier — one-off chip */}
             <div style={S.modGroup}>
