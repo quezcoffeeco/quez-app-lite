@@ -162,6 +162,61 @@ export const PHASES = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PLAYBOOK — Pre-Soft-Open Public Preview (optional 2-day dry run)
+// Intentionally NOT a phase, NOT counted in any progress bar, NOT referenced
+// by any critical gate. A standalone reference at the bottom of the screen.
+// Items are still checkable (they share the same quez_pre_launch_progress
+// store and identical id-keyed shape) but counters everywhere iterate PHASES
+// only — so this never moves the X/Y or percent.
+// ─────────────────────────────────────────────────────────────────────────────
+export const PRE_SOFT_OPEN_PLAYBOOK = {
+  id: 'playbook_pre_soft_open',
+  title: 'Pre-Soft-Open Preview',
+  subtitle: 'Optional 2-day free-drink dry run · mid-to-late January 2027',
+  intro:
+    'Free public preview to stress-test operations under real customer load before paying customers expect consistency. Sits 3–5 days before the Feb 1 paid launch. Excluded from the master timeline progress — light it up only when ready.',
+  groups: [
+    {
+      label: 'Set the rules',
+      items: [
+        { id: 'ps_rules_01', text: 'Hard cap — first 100 drinks per day, 6 AM – 10 AM only, then close. Predictable supply burn, predictable hours, no chaos.' },
+        { id: 'ps_rules_02', text: 'Limited menu Day 1 (pick 6 drinks). Full 15 on Day 2. Note which 6 you picked — that becomes your "default menu" data later.' },
+        { id: 'ps_rules_03', text: '3–5 day buffer between this and Feb 1 paid launch. Crew rest, equipment debrief, supply restock, fix what broke.' },
+      ],
+    },
+    {
+      label: 'Set the crowd',
+      items: [
+        { id: 'ps_crowd_01', text: 'Day 1 = invite-only preview (~50 people). Personally text/DM each invite — military / veteran community, immediate family, vendors, lot owner. No public social posting yet.' },
+        { id: 'ps_crowd_02', text: 'Day 2 = public preview. Announce on social 24 h before; sign at the lot reading "FREE DRINKS · 6–10 AM · FIRST 100"; post to local Facebook groups and NextDoor that morning.' },
+      ],
+    },
+    {
+      label: 'Set the tools',
+      items: [
+        { id: 'ps_tools_01', text: 'Tip jar ON. Free product + optional tip. Surprising fundraiser ($200–400 typical) and tells you what customers would willingly pay.' },
+        { id: 'ps_tools_02', text: 'Print 200 feedback cards (~$20). Each card: drink name, 1–5 stars, "Would you order this again?" yes/no. Way more useful than verbal feedback.' },
+        { id: 'ps_tools_03', text: 'Assign one person to TikTok/Instagram both days. Real reactions, real lines, behind-the-scenes content — irreplaceable launch marketing.' },
+      ],
+    },
+    {
+      label: 'Confirm compliance',
+      items: [
+        { id: 'ps_comp_01', text: 'Iowa DIAL Annual License IN HAND before the event. Even free, this is public food service. Same rules apply.' },
+        { id: 'ps_comp_02', text: 'Call general-liability insurance carrier to confirm the policy covers this date. Usually fine since you\'re operating as the business, but get it on the record.' },
+      ],
+    },
+    {
+      label: 'Capture and learn',
+      items: [
+        { id: 'ps_learn_01', text: 'Same-evening debrief Day 2 (write it down): What broke? What surprised you? Actual build times achieved? Which supply burned faster than expected? Carry the list into the 3–5 day buffer.' },
+        { id: 'ps_learn_02', text: 'Lock in the 2-day window once DIAL license confirms. Probably Jan 24–25 or Jan 27–28, 2027. Update the lot agreement / vendor calendars accordingly.' },
+      ],
+    },
+  ],
+};
+
 // Critical gates — the cross-cutting "if this slips, the launch slips" view.
 // Each entry references one or more task IDs so checking off in the main
 // timeline automatically marks the gate as done. `gates` is what falls if it slips.

@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { PHASES, CRITICAL_GATES, CATEGORY_COLORS } from '../data/preLaunchTimeline';
+import { PHASES, CRITICAL_GATES, CATEGORY_COLORS, PRE_SOFT_OPEN_PLAYBOOK } from '../data/preLaunchTimeline';
 import {
   getPreLaunchProgress,
   setPreLaunchTaskDone,
@@ -302,7 +302,125 @@ export default function PreLaunchTimeline() {
             </CollapsibleSection>
           );
         })}
+
+        {/* ── Pre-Soft-Open Preview Playbook ──
+            Optional reference at the very bottom. Items live in the same
+            quez_pre_launch_progress store but are intentionally NOT counted
+            in any progress bar or critical gate — every counter above only
+            iterates PHASES, never PRE_SOFT_OPEN_PLAYBOOK.groups. */}
+        <PlaybookBlock
+          playbook={PRE_SOFT_OPEN_PLAYBOOK}
+          progress={progress}
+          notesOpenFor={notesOpenFor}
+          setNotesOpenFor={setNotesOpenFor}
+          handleToggle={handleToggle}
+          handleNotesChange={handleNotesChange}
+        />
       </div>
+    </div>
+  );
+}
+
+function PlaybookBlock({ playbook, progress, notesOpenFor, setNotesOpenFor, handleToggle, handleNotesChange }) {
+  const [collapsed, setCollapsed] = useState(() => {
+    const state = getCollapseState();
+    return playbook.id in state ? !!state[playbook.id] : true;
+  });
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    persistCollapse(playbook.id, next);
+  };
+  // Item count is informational only — don't include it in the screen totals.
+  const totalItems = playbook.groups.reduce((s, g) => s + g.items.length, 0);
+  const doneItems = playbook.groups.reduce(
+    (s, g) => s + g.items.filter((i) => progress[i.id] && progress[i.id].done).length,
+    0
+  );
+  return (
+    <div style={S.playbookSection}>
+      <div style={{ ...S.sectionHeader, borderBottom: collapsed ? 'none' : S.sectionHeader.borderBottom }}>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          style={S.sectionHeaderBtn}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={S.playbookTitle}>📓 {playbook.title}</div>
+            {playbook.subtitle && <div style={S.sectionSub}>{playbook.subtitle}</div>}
+          </div>
+          <span
+            aria-hidden="true"
+            style={{
+              color: '#7BB3F0',
+              fontSize: 16,
+              transition: 'transform 0.18s ease',
+              transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)',
+              display: 'inline-block',
+              marginLeft: 8,
+            }}
+          >▾</span>
+        </button>
+        <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 8 }}>
+          <span style={S.playbookBadge}>NOT IN PROGRESS</span>
+        </div>
+      </div>
+      {!collapsed && (
+        <div style={S.playbookBody}>
+          {playbook.intro && (
+            <div style={S.playbookIntro}>{playbook.intro}</div>
+          )}
+          <div style={S.playbookCount}>{doneItems} / {totalItems} items checked</div>
+          {playbook.groups.map((group) => (
+            <div key={group.label} style={S.playbookGroup}>
+              <div style={S.playbookGroupLabel}>{group.label}</div>
+              {group.items.map((item) => {
+                const state = progress[item.id] || {};
+                const done = !!state.done;
+                const notesOpen = notesOpenFor === item.id;
+                return (
+                  <div key={item.id} style={{ ...S.taskRow, ...(done ? S.taskRowDone : {}) }}>
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(item.id)}
+                      style={{ ...S.checkbox, ...(done ? S.checkboxDone : {}) }}
+                      aria-label={done ? 'Mark incomplete' : 'Mark complete'}
+                    >
+                      {done && <span style={S.checkboxCheck}>✓</span>}
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ ...S.taskText, ...(done ? S.taskTextDone : {}) }}>
+                        {item.text}
+                      </div>
+                      <div style={S.taskActions}>
+                        <button
+                          type="button"
+                          onClick={() => setNotesOpenFor(notesOpen ? null : item.id)}
+                          style={S.notesToggle}
+                        >
+                          {state.notes
+                            ? `📝 Notes (${state.notes.length} chars)`
+                            : notesOpen ? '— Hide notes' : '+ Add notes'}
+                        </button>
+                      </div>
+                      {notesOpen && (
+                        <textarea
+                          value={state.notes || ''}
+                          onChange={(e) => handleNotesChange(item.id, e.target.value)}
+                          placeholder="Vendor names, quotes, follow-ups..."
+                          style={S.notesInput}
+                          rows={3}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -413,4 +531,15 @@ const S = {
   gateBadgeDone:    { background: 'rgba(76,175,80,0.15)',  border: '1px solid rgba(76,175,80,0.4)',  color: '#4CAF50' },
   gateLabel: { fontSize: 13, color: '#F5F0E8', fontWeight: 600, marginBottom: 2 },
   gateMeta: { fontSize: 11, lineHeight: 1.4 },
+
+  // Playbook block — visually distinct (blue accent) so it reads as
+  // "reference material, not part of the timeline".
+  playbookSection: { marginTop: 24, marginBottom: 12, background: '#141A22', border: '1px dashed rgba(123,179,240,0.45)', borderRadius: 10, overflow: 'hidden' },
+  playbookTitle: { fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#7BB3F0', fontFamily: 'sans-serif' },
+  playbookBadge: { background: 'rgba(123,179,240,0.12)', border: '1px solid rgba(123,179,240,0.4)', borderRadius: 10, color: '#7BB3F0', fontSize: 9, padding: '3px 8px', fontWeight: 800, letterSpacing: '0.1em' },
+  playbookBody: { padding: '12px 14px 8px' },
+  playbookIntro: { fontSize: 12, color: '#C8C0B0', lineHeight: 1.5, marginBottom: 12, padding: '10px 12px', background: 'rgba(123,179,240,0.06)', border: '1px solid rgba(123,179,240,0.18)', borderRadius: 8 },
+  playbookCount: { fontSize: 10, color: '#666', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 },
+  playbookGroup: { marginBottom: 14 },
+  playbookGroupLabel: { fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#7BB3F0', marginBottom: 6, paddingLeft: 2 },
 };
