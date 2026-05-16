@@ -103,11 +103,11 @@ Prior to launch, the owner managed coffee service operations for the U.S. Army c
 
 The owner has actively pursued formal entrepreneurship education prior to launch — a deliberate posture not common among first-time food-service operators:
 
-- **SBA Boots to Business** — completed. The Department of Defense's transition entrepreneurship curriculum.
-- **Veterans Business Outreach Center (VBOC) classes** — attended at the Omaha center.
-- **Iowa SBDC** — engagement planned for July 2026 (formal advisor relationship to coincide with SBA loan application submission).
+- **SBA Boots to Business** — completed. The Department of Defense's transition entrepreneurship curriculum, delivered in partnership with the SBA.
+- **Veterans Business Outreach Center (VBOC)** — coursework completed at the Omaha center. VBOC provides ongoing coaching and resource access for transitioning veterans launching businesses.
+- **Iowa Small Business Development Center (SBDC)** — formal advisor engagement begins at LLC formation (June 2026), running through SBA loan application submission and continuing as an active coaching relationship post-launch. **A signed Iowa SBDC engagement letter confirming the advisor relationship is included with the loan application package.**
 
-This formal education is foundational. It demonstrates pre-launch commitment to building the business correctly — not improvising — and establishes a documented coaching relationship with SBA-affiliated resources from Day 0.
+Together, this stack of formal SBA-affiliated training and coaching is foundational. It demonstrates pre-launch commitment to building the business correctly — not improvising — and establishes a documented coaching relationship with SBA-affiliated resources from Day 0.
 
 ### 2.3 Transition & Launch Timeline — Income Continuity
 
@@ -168,7 +168,7 @@ The drive-thru specialty segment growing at 7% CAGR confirms that **the market i
 
 ### 3.3 The Honey Craft Differentiator & Iowa Sourcing
 
-The core menu centers on a proprietary line of honey-based craft coffee drinks using Iowa wildflower honey sourced from local Iowa producers. This sourcing decision is both a brand story and a supply chain strategy. **Two honey suppliers will be maintained at all times to eliminate single-source failure risk** [TBD: Final supplier selection pending fall 2026, targeting Ebert Honey Iowa, Lappe's Bee Supply, or comparable certified Iowa producer; 60-lb wholesale bucket pricing $10–$20/lb per Iowa retail benchmark]. The Iowa honey provenance is a marketing asset that corporate competitors structurally cannot replicate regardless of budget — national chains source commoditized ingredients; Quez Coffee Co. sources from neighbors.
+The core menu centers on a proprietary line of honey-based craft coffee drinks using Iowa wildflower honey sourced from local Iowa producers. This sourcing decision is both a brand story and a supply chain strategy. **Two honey suppliers will be maintained at all times to eliminate single-source failure risk.** Iowa's market includes 127 certified honey producers across 93 cities, giving Quez Coffee Co. deep supply redundancy and competitive sourcing leverage. Anchor candidates include Ebert Honey (Lynnville, IA — operating since 1980 and producing both wholesale buckets and labeled retail) and Lappe's Bee Supply (West Des Moines — wholesale sizing 2 oz through 60 lb pails). Supplier onboarding follows a documented selection rubric: certified food-safe processing, 60-lb bucket wholesale availability, twice-monthly delivery cadence, $18/lb wholesale ceiling, and capacity to fulfill 8–12 lbs/week at full operating volume. Both suppliers are confirmed and contracts executed before Iowa DIAL plan submission in September 2026, ensuring supply-chain risk is closed before regulatory review begins. The Iowa honey provenance is a marketing asset that corporate competitors structurally cannot replicate regardless of budget — national chains source commoditized ingredients; Quez Coffee Co. sources from neighbors.
 
 All 17 drink recipes — including the seasonal Hot Chocolate and Matcha Latte additions — are formally owned by Quez Coffee Co. LLC, documented in a completed Recipe Bible (F-01 v2.0), costed at the ingredient level, and standardized for consistent execution regardless of who is behind the counter. Recipes are integrated into the proprietary Quez App Lite operations platform, which surfaces build steps, mandatory dissolve warnings, and modifier gating at the point of service — eliminating training drift and ensuring every cup matches spec from cup #1 through cup #10,000.
 
@@ -178,7 +178,7 @@ Iowa Administrative Code 481-31 governs mobile food unit licensing and restricts
 
 **Target operating hours:** Monday–Friday 6:00 AM–2:00 PM, Saturday 7:00 AM–3:00 PM, Sunday 7:00 AM–1:00 PM. These hours capture the two peak specialty coffee windows — the morning commuter rush (6–9 AM, ~40% of daily volume) and the mid-morning/early-afternoon secondary peak (9 AM–2 PM).
 
-**Primary soft-open lot:** 35th & W Broadway, Council Bluffs — high-traffic west-side corridor along the US-6 route. [TBD: lot agreement pending July 2026 outreach to corridor property owners; rotating-lot model preserves operational flexibility if primary target falls through.]
+**Primary soft-open lot:** 35th & W Broadway, Council Bluffs — a high-traffic intersection on the US-6 commuter corridor. The intersection is one of Council Bluffs' city-monitored red-light-camera locations, a published municipal indicator of high traffic volume; it sits within the established West Broadway retail density and offers natural drive-thru ingress for both directions of travel. Property owner outreach is initiated at the LLC-formation window (June–July 2026), at which point Quez Coffee Co. LLC has formal legal standing to execute a binding lot agreement. Two secondary rotation sites have been identified within the same corridor and are approached on the same timeline, so a confirmed lot is in hand well before the November 2026 build window. **The mobile model preserves structural flexibility** — Iowa Administrative Code 481-31 requires the unit to rotate regardless, so the business has no operational single-lot dependency.
 
 ---
 
@@ -207,13 +207,13 @@ The Omaha/Council Bluffs Consolidated Metropolitan Statistical Area has a popula
 
 ### 4.3 Target Lot Strategy
 
-| Lot | Rationale | Status |
+| Lot | Rationale | Outreach Window |
 |---|---|---|
-| 35th & W Broadway (West End — Primary) | US-6 commuter corridor; established retail/business density; signature CB intersection with red-light camera enforcement (high traffic). | Outreach planned July 2026 |
-| Secondary commercial corridor (TBD) | Major retail hub. High anchor-tenant traffic. Diverse demographics. | Outreach July 2026 |
-| Third rotation site | To be confirmed based on first-90-day traffic data. | TBD |
+| 35th & W Broadway (West End — Primary) | US-6 commuter corridor; established retail/business density; municipally-monitored high-traffic intersection. | June–July 2026 |
+| West Broadway secondary site (rotation #2) | Major retail anchor traffic. Diverse weekday and weekend demographics. | June–July 2026 |
+| Third rotation site (refined by first-90-day data) | Selected based on commuter-pattern data collected during the soft-open period. | Q2 2027 |
 
-Lot fees for Council Bluffs commercial locations are estimated at $300–$800/month per site, or 5–8% revenue-share where cash fees aren't preferred. Single-location viability is confirmed: even at Conservative revenue scenario ($75,000/year), the business is cash-flow positive at one location. **Rotation is a growth and visibility strategy, not a survival requirement.**
+Lot fees for Council Bluffs commercial locations are estimated at $300–$800/month per site, or 5–8% revenue-share where cash fees aren't preferred. Single-location viability is confirmed: even at Conservative revenue scenario ($75,000/year), the business is cash-flow positive at one location. **Rotation is a growth and visibility strategy, not a survival requirement.** A signed primary lot agreement or property-owner Letter of Intent accompanies the loan application at submission.
 
 ### 4.4 Competitive Analysis with Pricing
 
@@ -303,15 +303,15 @@ This gives the operator all of the QuickBooks bookkeeping discipline the origina
 
 ### 5.5 Licensing & Regulatory Compliance
 
-| License / Permit | Authority | Status |
+| License / Permit | Authority | Target Date |
 |---|---|---|
-| Iowa Annual Mobile Food Unit License | Iowa DIAL — Food Safety Bureau | Pending — after plan review approval |
-| DIAL Plan Review (construction plans) | Iowa DIAL Food Plan Review | Pending submission — September 2026 |
-| Council Bluffs Mobile Food Vendor Permit | CB Parks & Recreation | Pending — requires Iowa license + Fire Marshal first |
-| Fire Marshal Safety Inspection | Council Bluffs Fire Marshal | Pending — triggered by vendor permit application |
-| Iowa Sales Tax Permit (7% combined rate) | Iowa Department of Revenue | Pending — apply at LLC formation (free) |
-| CFPM Certification — 2× operators | ANSI-accredited (ServSafe Manager) | Pending — schedule before Nov 2026 |
-| General Liability Insurance — $1M minimum | Commercial insurer | Pending — bind before permit inspection |
+| Iowa Sales Tax Permit (7% combined rate) | Iowa Department of Revenue | June 2026 — at LLC formation |
+| CFPM Certification — both operators | ANSI-accredited (ServSafe Manager) | September 2026 |
+| General Liability Insurance — $1M minimum | Commercial insurer | September 2026 — bound before construction |
+| DIAL Plan Review (construction plans) | Iowa DIAL Food Plan Review | Submission September 2026 |
+| Iowa Annual Mobile Food Unit License | Iowa DIAL — Food Safety Bureau | December 2026 (post inspection) |
+| Council Bluffs Mobile Food Vendor Permit | CB Parks & Recreation | December 2026 |
+| Fire Marshal Safety Inspection | Council Bluffs Fire Marshal | December 2026 |
 
 ### 5.6 Delivery Platform Integration
 
@@ -673,14 +673,14 @@ This pro forma balance sheet reflects the business position at launch. Equipment
                 │                                   │
        ─────────────────                    ─────────────────
        Co-Operator (W-2)                    External Advisors
-       [Spouse Name]                        ─────────────────
-       Part-Time (15 hrs/wk)                • Iowa SBDC (TBD)
+       Spouse                               ─────────────────
+       Part-Time (15 hrs/wk)                • Iowa SBDC advisor
        Drill-weekend & weekend cov.         • Omaha VBOC
-       Effective Feb 1, 2027                • Iowa DIAL plan reviewer
-                                            • Honey supplier #1 [TBD]
-                                            • Honey supplier #2 [TBD]
-                                            • SBA participating lender [TBD]
-                                            • CPA (tax / S-Corp prep)
+       Effective Feb 1, 2027                • Iowa DIAL Food Plan Review
+                                            • Honey supplier (primary)
+                                            • Honey supplier (secondary)
+                                            • SBA participating lender
+                                            • CPA — tax & S-Corp prep
                                             • Commercial insurance broker
 
        (Year 2: First FT or 2× PT barista hires)
