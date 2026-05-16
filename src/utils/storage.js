@@ -68,6 +68,11 @@ export const storageGet = (key) => {
   } catch { return null; }
 };
  
+// NOTE: When the Guest user is signed in, AppContext.installGuestMode()
+// monkey-patches localStorage.setItem so most quez_* keys silently drop.
+// That's intentional — Guest writes never persist. If a button you wrote
+// doesn't seem to save in Guest mode, that's why; check the allowlist in
+// AppContext for the small set of keys that DO pass through.
 export const storageSet = (key, value) => {
   try {
     localStorage.setItem(key, JSON.stringify(value));

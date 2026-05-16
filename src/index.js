@@ -1,14 +1,14 @@
 // ============================================================
 // QUEZ APP LITE — Entry Point
+// Seed data is owned by storage.initializeStorage() (called from
+// AppContext on mount). Don't add a second seeding path here —
+// any old defaults.js shape was a landmine that disagreed with
+// the live settings shape.
 // ============================================================
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
-import { applyDefaultsIfNeeded } from './data/defaults';
-
-// Apply seed data on first launch
-applyDefaultsIfNeeded();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
