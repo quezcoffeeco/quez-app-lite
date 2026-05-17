@@ -842,7 +842,7 @@ export default function OwnerDashboard() {
             </div>
             <button
               style={{ marginTop: 8, background: 'transparent', border: '1px solid #D4AF37', color: '#D4AF37', borderRadius: 7, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
-              onClick={() => navigate('settings')}
+              onClick={() => navigate('settings:dataBackup')}
             >
               {isSpanish ? 'Abrir Datos y Respaldo' : 'Open Data & Backup'}
             </button>

@@ -187,9 +187,9 @@ export default function AlertsScreen() {
               </button>
               <button
                 style={{ ...S.cardAction, background: 'transparent', color: C.amber, border: '1px solid ' + C.amber }}
-                onClick={() => navigate('settings')}
+                onClick={() => navigate('settings:email')}
               >
-                {isSpanish ? 'Ajustes' : 'Settings'}
+                {isSpanish ? 'Config. Correo' : 'Email Config'}
               </button>
             </div>
           </div>
@@ -249,7 +249,7 @@ export default function AlertsScreen() {
                   </div>
                 )}
               </div>
-              <button style={S.cardAction} onClick={() => navigate('settings')}>
+              <button style={S.cardAction} onClick={() => navigate('settings:dataBackup')}>
                 {isSpanish ? 'Abrir Datos y Respaldo →' : 'Open Data & Backup →'}
               </button>
             </div>

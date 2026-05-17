@@ -199,7 +199,12 @@ function AppInner() {
         {currentScreen === 'dashboard'           && <Dashboard />}
         {currentScreen === 'dailyChecklist'      && <DailyChecklist />}
         {currentScreen === 'periodicChecklists'  && <PeriodicChecklists />}
-        {currentScreen.startsWith('settings')    && <SettingsScreen initialSection={currentScreen.includes(':') ? currentScreen.split(':')[1] : ''} />}
+        {currentScreen.startsWith('settings')    && (
+          <SettingsScreen
+            initialSection={currentScreen.includes(':') ? currentScreen.split(':')[1] : ''}
+            singleSection={currentScreen.includes(':')}
+          />
+        )}
         {currentScreen === 'training'            && <TrainingPortal />}
         {currentScreen === 'trainingApproval'    && <TrainingApproval />}
         {currentScreen === 'drinkGuide'          && <DrinkGuide />}

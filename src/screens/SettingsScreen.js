@@ -84,7 +84,22 @@ function useToast() {
   return [toast, show];
 }
 
-function Section({id, icon, title, expanded, onToggle, children}) {
+function Section({id, icon, title, expanded, onToggle, children, singleMode}) {
+  // singleMode = each section is its own page (route 'settings:<id>').
+  // In that mode we only render the matching section and lose the
+  // collapse toggle entirely.
+  if (singleMode) {
+    if (!expanded) return null;
+    return (
+      <div style={S.card}>
+        <div style={{ ...S.cardBtn, cursor: 'default' }}>
+          <span style={{fontSize:20}}>{icon}</span>
+          <span style={{...S.cardTitle, color: '#D4AF37', fontSize: 16}}>{title}</span>
+        </div>
+        <div style={S.cardBody}>{children}</div>
+      </div>
+    );
+  }
   return (
     <div style={S.card}>
       <button style={S.cardBtn} onClick={()=>onToggle(id)}>
@@ -824,7 +839,7 @@ function ConfirmModal({message, onConfirm, onClose}) {
   );
 }
 
-export default function SettingsScreen({ initialSection = 'employees' }) {
+export default function SettingsScreen({ initialSection = 'employees', singleSection = false }) {
   const { language, setLanguage, currentUser } = useApp();
   const viewerIsOwner = currentUser?.role === 'owner';
   const [settings, setSettingsState] = useState(()=>getSettings());
@@ -834,8 +849,13 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
     return m.length > 0 ? m : DEFAULT_MENU_DRINKS;
   });
   // initialSection is set by deep-link routes like 'settings:menu' so opening
-  // a specific Admin tile lands directly on the right accordion section.
+  // a specific Admin tile lands directly on the right section. singleSection
+  // (true when the route includes ':') restricts the page to ONLY that
+  // section so each one feels like its own page rather than a giant scroll.
   const [expanded, setExpanded] = useState(initialSection || 'employees');
+  // In single-section mode, the section is fixed at the requested target
+  // regardless of any local toggle attempts.
+  const visibleSection = singleSection ? initialSection : expanded;
   const [toast, showToast] = useToast();
   const [empModal, setEmpModal] = useState(null);
   const [drinkModal, setDrinkModal] = useState(null);
@@ -966,17 +986,38 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
 
   const lang = language || 'en';
 
+  // Section title labels — used to swap the page header into a
+  // section-specific header when this screen is rendered as a single page.
+  const SECTION_TITLES = {
+    employees: 'Employee Management',
+    email: 'Email Configuration',
+    locations: 'Locations',
+    timeLocks: 'Time Locks',
+    todayOps: "Today's Operations",
+    dataBackup: 'Data & Backup',
+    periodicDue: 'Periodic Schedule',
+    training: 'Training Settings',
+    menu: 'Menu Management',
+    language: 'Language',
+  };
+  const pageTitle = singleSection
+    ? (SECTION_TITLES[visibleSection] || 'Settings')
+    : 'Settings';
+  const pageSub = singleSection
+    ? (viewerIsOwner ? '' : 'Owner-only items hidden')
+    : 'Owner access only';
+
   return (
     <div style={S.screen}>
       <div style={S.header}>
-        <div style={S.headerTitle}>Settings</div>
-        <div style={S.headerSub}>Owner access only</div>
+        <div style={S.headerTitle}>{pageTitle}</div>
+        {pageSub && <div style={S.headerSub}>{pageSub}</div>}
       </div>
 
       <div style={S.body}>
 
         {/* EMPLOYEES */}
-        <Section id="employees" icon="👥" title="Employee Management" expanded={expanded==='employees'} onToggle={toggleSection}>
+        <Section id="employees" icon="👥" title="Employee Management" expanded={visibleSection==='employees'} onToggle={toggleSection} singleMode={singleSection}>
           {employees.map(emp=>(
             <div key={emp.id} style={{...S.row, opacity:emp.active?1:0.45}}>
               <div style={{width:36,height:36,borderRadius:'50%',background:'#2A2A2A',border:`2px solid ${ROLE_COLORS[emp.role]||'#888'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:ROLE_COLORS[emp.role]||'#888',flexShrink:0}}>
@@ -1016,7 +1057,7 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
         </Section>
 
         {/* EMAIL */}
-        <Section id="email" icon="✉️" title="Email Configuration" expanded={expanded==='email'} onToggle={toggleSection}>
+        <Section id="email" icon="✉️" title="Email Configuration" expanded={visibleSection==='email'} onToggle={toggleSection} singleMode={singleSection}>
           <Field label="Owner Email Address" note="All automatic emails are sent here">
             <input style={S.input} type="email" value={settings.ownerEmail} onChange={e=>updateSetting('ownerEmail',e.target.value)} placeholder="owner@quezcoffeeco.com" />
           </Field>
@@ -1054,7 +1095,7 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
         </Section>
 
         {/* LOCATIONS */}
-        <Section id="locations" icon="📍" title="Locations" expanded={expanded==='locations'} onToggle={toggleSection}>
+        <Section id="locations" icon="📍" title="Locations" expanded={visibleSection==='locations'} onToggle={toggleSection} singleMode={singleSection}>
           <div style={{...S.note,marginBottom:12}}>These appear in the location dropdown at login.</div>
           {settings.locations.map(loc=>(
             <div key={loc} style={{...S.row}}>
@@ -1071,7 +1112,7 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
         </Section>
 
         {/* TIME LOCKS */}
-        <Section id="timeLocks" icon="🕐" title="Time Locks" expanded={expanded==='timeLocks'} onToggle={toggleSection}>
+        <Section id="timeLocks" icon="🕐" title="Time Locks" expanded={visibleSection==='timeLocks'} onToggle={toggleSection} singleMode={singleSection}>
           <div style={{...S.note,marginBottom:16}}>When enabled, employees cannot access checklist sections until the configured time.</div>
           <div style={{marginBottom:20}}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
@@ -1108,23 +1149,23 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
 
         {/* TODAY'S OPERATIONS — owner sets the daily business policy */}
         {viewerIsOwner && (
-          <Section id="todayOps" icon="☕" title="Today's Operations" expanded={expanded==='todayOps'} onToggle={toggleSection}>
+          <Section id="todayOps" icon="☕" title="Today's Operations" expanded={visibleSection==='todayOps'} onToggle={toggleSection} singleMode={singleSection}>
             <TodayOpsEditor />
           </Section>
         )}
 
         {/* DATA & BACKUP */}
-        <Section id="dataBackup" icon="💾" title="Data & Backup" expanded={expanded==='dataBackup'} onToggle={toggleSection}>
+        <Section id="dataBackup" icon="💾" title="Data & Backup" expanded={visibleSection==='dataBackup'} onToggle={toggleSection} singleMode={singleSection}>
           <DataBackupEditor viewerIsOwner={viewerIsOwner} />
         </Section>
 
         {/* PERIODIC SCHEDULE */}
-        <Section id="periodicDue" icon="📅" title="Periodic Checklist Schedule" expanded={expanded==='periodicDue'} onToggle={toggleSection}>
+        <Section id="periodicDue" icon="📅" title="Periodic Checklist Schedule" expanded={visibleSection==='periodicDue'} onToggle={toggleSection} singleMode={singleSection}>
           <PeriodicScheduleEditor />
         </Section>
 
         {/* TRAINING BYPASS */}
-        <Section id="training" icon="🎓" title="Training Settings" expanded={expanded==='training'} onToggle={toggleSection}>
+        <Section id="training" icon="🎓" title="Training Settings" expanded={visibleSection==='training'} onToggle={toggleSection} singleMode={singleSection}>
           <div style={{...S.note,marginBottom:12}}>Bypass skips all training phases and immediately grants the assigned role.</div>
           {employees.filter(e=>e.active&&e.role!=='owner').map(emp=>(
             <div key={emp.id} style={S.row}>
@@ -1147,7 +1188,7 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
         </Section>
 
         {/* MENU */}
-        <Section id="menu" icon="☕" title="Menu Management" expanded={expanded==='menu'} onToggle={toggleSection}>
+        <Section id="menu" icon="☕" title="Menu Management" expanded={visibleSection==='menu'} onToggle={toggleSection} singleMode={singleSection}>
           {CATEGORIES.map(cat=>{
             const drinks = menu.filter(d=>d.category===cat);
             if (!drinks.length) return null;
@@ -1188,7 +1229,7 @@ export default function SettingsScreen({ initialSection = 'employees' }) {
         </Section>
 
         {/* LANGUAGE */}
-        <Section id="language" icon="🌐" title="Language" expanded={expanded==='language'} onToggle={toggleSection}>
+        <Section id="language" icon="🌐" title="Language" expanded={visibleSection==='language'} onToggle={toggleSection} singleMode={singleSection}>
           <div style={{display:'flex',gap:10}}>
             <button style={{...S.btn,flex:1,...(lang==='en'?S.btnGold:S.btnGhost)}} onClick={()=>setLang('en')}>🇺🇸 English</button>
             <button style={{...S.btn,flex:1,...(lang==='es'?S.btnGold:S.btnGhost)}} onClick={()=>setLang('es')}>🇲🇽 Español</button>
