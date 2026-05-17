@@ -23,7 +23,6 @@ import {
   isQuarterlySubmittedThisQuarter,
   isAnnualChecklistDue,
   isAnnualSubmittedThisYear,
-  getMyDrinkCountToday,
   getSeasonalDrink,
   getTodayLocation,
   getTodayLocationUpdatedAt,
@@ -33,7 +32,6 @@ import {
   getDailyGoal,
   getCurrentStreak,
   getMyWeekStats,
-  getMyRecentDrinks,
   getLowStockItems,
   getEmployees,
   fetchWeather,
@@ -47,8 +45,6 @@ import {
   moveItem,
 } from '../utils/storage';
 import { getTodayBrandStandard } from '../data/brandStandards';
-import { drinkRecipes } from '../data/drinkRecipes';
-import { getModLabel } from '../data/drinkModifiers';
 import { fmtRelTime as fmtRelTimeShared } from '../utils/timeFormat';
 
 function todayLong(lang) {
@@ -61,17 +57,16 @@ function todayLong(lang) {
 function getShiftDefaultOrder(isLead) {
   // Hero (briefing) leads. Mega-stat next (primary tap target → Orders).
   // Daily Checklist link sits above quick actions so a pending checklist is
-  // impossible to miss. My Last 5 sits high for mid-rush recall per the
-  // simulated converged spec. Goal/streak is demoted to a compact chip.
+  // impossible to miss. Goal/streak stays as a compact motivation chip.
   //
   // REMOVED from default: weather (hidden), drinkGuideLink (in primary nav
-  // for baristas now), ordersLink (duplicates the mega-stat tap target).
+  // for baristas now), ordersLink (duplicates the mega-stat tap target),
+  // barTotal + myRecentDrinks (noise during a rush, never used), waste link
+  // (lives in More).
   const base = [
     'briefing',
     'megaStat',
-    'barTotal',
     'dailyChecklistLink',
-    'myRecentDrinks',
     'quickActions',
     'brandStandard',
     'goal',
@@ -389,7 +384,6 @@ function ShiftDashboard({ user, language }) {
   const isLead = user?.role === 'leadBarista';
 
   const [openOrderCount, setOpenOrderCount] = useState(0);
-  const [myDrinksToday, setMyDrinksToday] = useState(0);
   const [checklistSubmitted, setChecklistSubmitted] = useState(false);
   const [periodicAlerts, setPeriodicAlerts] = useState({ weekly: false, monthly: false, quarterly: false, annual: false });
   // Pre-shift briefing data
@@ -398,8 +392,6 @@ function ShiftDashboard({ user, language }) {
   const [locationUpdatedAt, setLocationUpdatedAt] = useState(null);
   const [eightySixed, setEightySixed] = useState([]);
   const [handoffNote, setHandoffNote] = useState(null);
-  const [myRecentDrinks, setMyRecentDrinks] = useState([]);
-  const [recipeModal, setRecipeModal] = useState(null);    // { drink, size, prep, modifiers } for tap-to-recipe
   // Goal + week stats + low-stock
   const [dailyGoal, setDailyGoalState] = useState(0);
   const [todayDrinkTotal, setTodayDrinkTotal] = useState(0);
@@ -421,7 +413,6 @@ function ShiftDashboard({ user, language }) {
   const load = useCallback(() => {
     if (!user) return;
     setOpenOrderCount(getActiveOrders().length);
-    setMyDrinksToday(getMyDrinkCountToday(user.name));
     setChecklistSubmitted(isDailyChecklistSubmittedToday());
     // Briefing
     setSeasonal(getSeasonalDrink());
@@ -435,7 +426,6 @@ function ShiftDashboard({ user, language }) {
     setTodayDrinkTotal(log.length);
     setStreak(getCurrentStreak(user.id));
     setWeekStats(getMyWeekStats(user.name, user.id));
-    setMyRecentDrinks(getMyRecentDrinks(user.name, 5));
     setBirthdays(getBirthdaysThisWeek());
     setAchievements(getMyAchievements(user.id, user.name));
     setPlaylistUrlState(getPlaylistUrl());
@@ -669,107 +659,12 @@ function ShiftDashboard({ user, language }) {
                 </div>
               </button>
             ),
-            // Bar-wide drinks-served-today tile. Trish's #1 ask after a week
-            // of use — barista-personal count wasn't what she needed; she
-            // wanted the whole-trailer total at a glance.
-            barTotal: () => (
-              <div style={S.barTotalCard}>
-                <div style={S.barTotalLeft}>
-                  <div style={S.barTotalNum}>{todayDrinkTotal}</div>
-                  <div style={S.barTotalLbl}>
-                    {lang === 'es' ? 'bebidas hoy · barra completa' : 'drinks today · whole bar'}
-                  </div>
-                </div>
-                <div style={S.barTotalRight}>
-                  <div style={S.barTotalMine}>
-                    {lang === 'es' ? 'mías' : 'mine'}: <b style={{ color: '#D4AF37' }}>{myDrinksToday}</b>
-                  </div>
-                  {dailyGoal > 0 && (
-                    <div style={S.barTotalMine}>
-                      {lang === 'es' ? 'meta' : 'goal'}: <b style={{ color: '#888' }}>{dailyGoal}</b>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ),
-            myRecentDrinks: () => myRecentDrinks.length > 0 && (
-              <div style={S.miniCard}>
-                <div style={S.miniLabel}>
-                  {lang === 'es'
-                    ? `Mis Últimas ${myRecentDrinks.length}`
-                    : `My Last ${myRecentDrinks.length} ${myRecentDrinks.length === 1 ? 'Drink' : 'Drinks'}`}
-                  <span style={{ marginLeft: 8, color: '#666', fontWeight: 400, fontSize: 10, fontStyle: 'italic' }}>
-                    {lang === 'es' ? 'toca para ver receta' : 'tap to view recipe'}
-                  </span>
-                </div>
-                {myRecentDrinks.map((d, i) => {
-                  const mods = (d.modifiers || []).filter((m) => !m.startsWith('__custom__:'));
-                  const customNote = (d.modifiers || []).find((m) => m.startsWith('__custom__:'));
-                  const customText = customNote ? customNote.slice('__custom__:'.length) : '';
-                  return (
-                    <button
-                      key={d.orderId + '_' + i}
-                      onClick={() => {
-                        if (editMode) return;
-                        const drink = drinkRecipes.find((dr) => dr.id === d.drinkId);
-                        if (drink) setRecipeModal({ drink, size: d.size, prep: d.prepType, modifiers: d.modifiers || [], note: d.note || '' });
-                      }}
-                      style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        background: 'transparent',
-                        border: 'none',
-                        borderBottom: '1px solid #1a1a1a',
-                        padding: '7px 2px',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                        color: '#F5F0E8',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ color: '#ddd', fontSize: 13, fontWeight: 600 }}>{d.drinkName}</span>
-                          <span style={{ color: '#666', fontSize: 11, marginLeft: 6 }}>· {d.size}</span>
-                          <span style={{
-                            color: '#888', fontSize: 10, marginLeft: 6,
-                            textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700,
-                          }}>
-                            {d.prepType}
-                          </span>
-                        </div>
-                        <span style={{ color: '#888', fontSize: 11, flexShrink: 0 }}>{fmtRelTime(d.completedAt)}</span>
-                      </div>
-                      {(mods.length > 0 || customText || d.note) && (
-                        <div style={{ marginTop: 3, color: '#999', fontSize: 11, fontStyle: 'italic', lineHeight: 1.35 }}>
-                          {mods.map((m) => getModLabel(m, lang)).join(' · ')}
-                          {mods.length > 0 && (customText || d.note) ? ' · ' : ''}
-                          {customText}
-                          {customText && d.note ? ' · ' : ''}
-                          {d.note ? `📝 ${d.note}` : ''}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            ),
             brandStandard: () => (
               <div style={S.brandStandardCard}>
                 <span style={S.brandStandardIcon}>✦</span>
                 <span style={S.brandStandardText}>
                   {getTodayBrandStandard()[lang] || getTodayBrandStandard().en}
                 </span>
-              </div>
-            ),
-            // Old stats row replaced by megaStat above. Kept here only so
-            // legacy saved layouts still resolve — renders the "my drinks
-            // today" stat compactly.
-            stats: () => (
-              <div style={S.miniCard}>
-                <div style={S.miniLabel}>{lang === 'es' ? 'Mis Bebidas Hoy' : 'My Drinks Today'}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#D4AF37', fontFamily: 'Georgia, serif' }}>
-                  {myDrinksToday}
-                </div>
               </div>
             ),
             goal: () => dailyGoal > 0 && (
@@ -788,10 +683,6 @@ function ShiftDashboard({ user, language }) {
             ),
             quickActions: () => (
               <div style={S.quickRow}>
-                <button style={S.quickBtn} onClick={() => navigate('wasteLog')}>
-                  <span style={S.quickIcon}>🗑</span>
-                  <span style={S.quickLabel}>{lang === 'es' ? 'Desperdicio' : 'Waste'}</span>
-                </button>
                 {isLead && (
                   <button style={S.quickBtn} onClick={() => navigate('inventory')}>
                     <span style={S.quickIcon}>📦</span>
@@ -1034,85 +925,6 @@ function ShiftDashboard({ user, language }) {
         </div>
       )}
 
-      {/* Recipe modal — opened from "My Last 5 Drinks" tap; same build flow
-          as the Orders RECIPE button so mid-rush re-reference is one tap. */}
-      {recipeModal && (() => {
-        const { drink, size, prep, modifiers = [], note = '' } = recipeModal;
-        const ingredients = drink.ingredients?.[size] || [];
-        const steps = drink.buildSteps?.[prep] || [];
-        const visibleMods = modifiers.filter((m) => !m.startsWith('__custom__:'));
-        const customMods = modifiers
-          .filter((m) => m.startsWith('__custom__:'))
-          .map((m) => m.slice('__custom__:'.length));
-        return (
-          <div style={S.overlay} onClick={() => setRecipeModal(null)}>
-            <div style={{ ...S.modal, maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ color: '#D4AF37', fontSize: 18, marginBottom: 4 }}>✦</div>
-              <h3 style={{ color: '#F5F0E8', fontSize: 19, fontWeight: 700, margin: '0 0 6px' }}>{drink.name}</h3>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, fontWeight: 700, background: '#222', border: '1px solid #333', borderRadius: 4, padding: '2px 6px', color: '#aaa' }}>{size}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid #555', borderRadius: 4, padding: '2px 6px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{prep}</span>
-                {drink.buildTime && <span style={{ color: '#888', fontSize: 12, marginLeft: 4 }}>⏱ {drink.buildTime}</span>}
-              </div>
-
-              {(visibleMods.length > 0 || customMods.length > 0 || note) && (
-                <div style={{ background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
-                  <div style={{ fontSize: 10, color: '#D4AF37', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 6 }}>
-                    {lang === 'es' ? 'Personalizaciones' : 'Customizations'}
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {visibleMods.map((m) => (
-                      <span key={m} style={{ fontSize: 12, background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.35)', color: '#D4AF37', borderRadius: 5, padding: '2px 8px' }}>{getModLabel(m, lang)}</span>
-                    ))}
-                    {customMods.map((c, i) => (
-                      <span key={'c' + i} style={{ fontSize: 12, background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.35)', color: '#D4AF37', borderRadius: 5, padding: '2px 8px' }}>{c}</span>
-                    ))}
-                    {note && (
-                      <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid #444', color: '#ddd', borderRadius: 5, padding: '2px 8px', fontStyle: 'italic' }}>📝 {note}</span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 7 }}>
-                  {lang === 'es' ? 'Ingredientes' : 'Ingredients'}
-                </div>
-                {ingredients.map((ing, i) => (
-                  <div key={i} style={{ fontSize: 13, color: '#ddd', marginBottom: 4, lineHeight: 1.4 }}>
-                    <span style={{ color: '#D4AF37' }}>·</span> {ing}
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 7 }}>
-                  {lang === 'es' ? 'Pasos' : 'Build Steps'}
-                </div>
-                {steps.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 13, color: '#ddd', lineHeight: 1.5 }}>
-                    <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.3)', color: '#D4AF37', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>{i + 1}</span>
-                    <span>{s}</span>
-                  </div>
-                ))}
-              </div>
-
-              {drink.tip && (
-                <div style={{ background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#ccc', lineHeight: 1.5, marginBottom: 14 }}>
-                  💡 {drink.tip}
-                </div>
-              )}
-
-              <button
-                style={{ width: '100%', padding: 11, background: '#D4AF37', color: '#0D0D0D', border: 'none', borderRadius: 8, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}
-                onClick={() => setRecipeModal(null)}
-              >
-                {lang === 'es' ? 'Cerrar' : 'Close'}
-              </button>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
