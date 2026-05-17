@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { getSettings, saveSettings, getEmployees, saveEmployees, getMenu, saveMenu, resetEmployeePin, getPeriodicDueConfig, savePeriodicDueConfig, getSeasonalDrink, setSeasonalDrink, getTodayLocation, setTodayLocation, getLocationSchedule, setLocationSchedule, getTodayScheduledLocation, isLocationOverridden, getDailyGoal, setDailyGoal, getPlaylistUrl, setPlaylistUrl, downloadBackup, readBackupFile, restoreFromBundle, getStorageHealth, requestPersistentStorage, getAutoBackupConfig, setAutoBackupConfig, sendBackupEmail, getLastAutoBackupAt } from '../utils/storage';
+import { getSettings, saveSettings, getEmployees, saveEmployees, getMenu, saveMenu, resetEmployeePin, getPeriodicDueConfig, savePeriodicDueConfig, getSeasonalDrink, setSeasonalDrink, getTodayLocation, setTodayLocation, getLocationSchedule, setLocationSchedule, getTodayScheduledLocation, isLocationOverridden, getDailyGoal, setDailyGoal, getPlaylistUrl, setPlaylistUrl, downloadBackup, readBackupFile, restoreFromBundle, getStorageHealth, requestPersistentStorage, getAutoBackupConfig, setAutoBackupConfig, sendBackupEmail, getLastAutoBackupAt, logAudit } from '../utils/storage';
 
 const ROLES = ['owner','manager','leadBarista','barista','trainee'];
 const ROLE_LABELS = { owner:'Owner', manager:'Manager', leadBarista:'Lead Barista', barista:'Barista', trainee:'Trainee' };
@@ -917,6 +917,46 @@ export default function SettingsScreen({ initialSection = 'employees', singleSec
     });
   }
 
+  // Hard-delete an employee record entirely. Owner-only, two-step confirm,
+  // never self-delete, never delete the last remaining owner. Logged to the
+  // audit trail so the deletion stays accountable.
+  function deleteEmployee(emp) {
+    if (!viewerIsOwner) return;
+    if (emp.id === currentUser?.id) {
+      showToast('Cannot delete yourself');
+      return;
+    }
+    if (emp.role === 'owner') {
+      const otherOwners = employees.filter(e => e.role === 'owner' && e.id !== emp.id && e.active);
+      if (otherOwners.length === 0) {
+        showToast('Cannot delete the last owner');
+        return;
+      }
+    }
+    setConfirm({
+      message: `Permanently delete ${emp.name}? This removes the record entirely — login, training progress, drink history attribution. This cannot be undone.`,
+      onConfirm: () => {
+        // Second confirm — destructive, no recovery short of restoring a backup.
+        setConfirm({
+          message: `Are you absolutely sure? ${emp.name}'s record will be gone forever. Consider deactivating instead if you might bring them back.`,
+          onConfirm: () => {
+            const next = employees.filter(e => e.id !== emp.id);
+            saveEmployees(next);
+            setEmployees(next);
+            logAudit('employee_deleted', {
+              employeeId: emp.id,
+              employeeName: emp.name,
+              role: emp.role,
+              byName: currentUser?.name || 'Owner',
+            });
+            setConfirm(null);
+            showToast(`${emp.name} deleted`);
+          },
+        });
+      },
+    });
+  }
+
   function setTrainingBypass(empId, val) {
     const next = employees.map(e=>e.id===empId?{...e,trainingBypass:val}:e);
     saveEmployees(next); setEmployees(next); showToast('Saved');
@@ -1046,12 +1086,26 @@ export default function SettingsScreen({ initialSection = 'employees', singleSec
                     <div style={{fontSize:11,color:'#666',fontStyle:'italic',whiteSpace:'nowrap'}}>read-only</div>
                   );
                 }
+                // Owner-only purge: hard-delete an employee record. Hidden for
+                // self and for the last owner. Distinct from deactivate (the
+                // ✕ / ↩ button below) which keeps the record for history.
+                const canDelete = viewerIsOwner && emp.id !== currentUser?.id && (
+                  emp.role !== 'owner' ||
+                  employees.filter(e => e.role === 'owner' && e.id !== emp.id && e.active).length > 0
+                );
                 return (
                   <div style={{display:'flex',gap:6}}>
                     <button style={{...S.btn,padding:'5px 10px',fontSize:13,...S.btnGhost}} onClick={()=>setEmpModal(emp)}>✎</button>
-                    <button style={{...S.btn,padding:'5px 10px',fontSize:13,...(emp.active?S.btnDanger:S.btnSuccess)}} onClick={()=>toggleEmpActive(emp)}>
+                    <button style={{...S.btn,padding:'5px 10px',fontSize:13,...(emp.active?S.btnDanger:S.btnSuccess)}} onClick={()=>toggleEmpActive(emp)} title={emp.active?'Deactivate':'Reactivate'}>
                       {emp.active?'✕':'↩'}
                     </button>
+                    {canDelete && (
+                      <button
+                        style={{...S.btn,padding:'5px 8px',fontSize:13,background:'transparent',border:'1px solid #E05252',color:'#E05252'}}
+                        onClick={()=>deleteEmployee(emp)}
+                        title="Delete permanently"
+                      >🗑</button>
+                    )}
                   </div>
                 );
               })()}
