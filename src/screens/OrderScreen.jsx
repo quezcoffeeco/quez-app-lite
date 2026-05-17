@@ -106,6 +106,10 @@ const URGENCY_COLOR = {
 // Day-one fallback when getBuildTimeStats has no history yet. Numbers picked
 // from real bar timing on a typical 12oz drink.
 const FALLBACK_TARGET_SEC = { espresso: 90, drip: 30, iced: 60, blended: 90 };
+// Minimum completed-order samples before the per-prep baseline is trusted.
+// Below this we use the fallback — one fast test completion shouldn't drag
+// the target down to ":10" and make every later ticket look impossibly slow.
+const BASELINE_MIN_SAMPLES = 5;
 
 // Slowest-prep target for an order. Hot prep splits into espresso vs drip via
 // the recipe's tags.usesEspresso flag so a 12oz drip coffee doesn't share a
@@ -118,8 +122,9 @@ function targetSecondsForOrder(order, baseline) {
   const targets = (order.items || []).map((it) => {
     let key = it.prepType;
     if (key === 'hot') key = recipeIsEspresso(it.drinkId) ? 'espresso' : 'drip';
-    const fromBaseline = baseline?.byPrep?.[key]?.avgSec || 0;
-    return fromBaseline > 0 ? fromBaseline : (FALLBACK_TARGET_SEC[key] || 60);
+    const bucket = baseline?.byPrep?.[key];
+    const trustable = bucket && bucket.count >= BASELINE_MIN_SAMPLES && bucket.avgSec > 0;
+    return trustable ? bucket.avgSec : (FALLBACK_TARGET_SEC[key] || 60);
   });
   return targets.length ? Math.max(...targets) : 0;
 }
