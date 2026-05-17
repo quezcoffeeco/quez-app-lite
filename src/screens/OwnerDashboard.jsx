@@ -36,6 +36,8 @@ import {
   getBuildTimeStats,
   getActiveTraineesSummary,
   logAudit,
+  alertsAreDismissed,
+  dismissAlerts,
 } from '../utils/storage';
 import { sendQuezEmail, sendStatusMessage, getEmailQueue, retryEmailQueue, deleteQueuedEmail, clearEmailQueue } from '../utils/emailjs';
 import { fmtClock } from '../utils/timeFormat';
@@ -565,35 +567,93 @@ export default function OwnerDashboard() {
         </div>
       </div>
 
-      {/* ── Alert Tiles ── */}
-      {(lowStockCount > 0 || handoffs.length > 0 || emailQueue.length > 0) && (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${[lowStockCount > 0, handoffs.length > 0, emailQueue.length > 0].filter(Boolean).length || 1}, 1fr)`, gap: 8, padding: '12px 16px 0' }}>
-          {lowStockCount > 0 && (
-            <div style={{ background: '#111', border: '1px solid #E05252', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Stock' : 'Stock'}</div>
-              <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: '#E05252', fontWeight: 700 }}>{lowStockCount}</div>
-              <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'bajo par' : 'below par'}</div>
+      {/* ── Alert Tiles — dismissible. Dismissal lasts one day; if a NEW
+              alert appears (count grows), the row reappears automatically.
+              The Alerts screen in More always shows live state regardless. ── */}
+      {(() => {
+        const currentSnapshot = {
+          lowStock: lowStockCount,
+          handoffs: handoffs.length,
+          emailQueue: emailQueue.length,
+        };
+        const anyAlert = lowStockCount > 0 || handoffs.length > 0 || emailQueue.length > 0;
+        if (!anyAlert) return null;
+        if (alertsAreDismissed(currentSnapshot)) {
+          return (
+            <div style={{ padding: '10px 16px 0' }}>
+              <button
+                onClick={() => navigate('alerts')}
+                style={{
+                  width: '100%',
+                  background: 'transparent',
+                  border: '1px dashed rgba(212,175,55,0.30)',
+                  borderRadius: 8,
+                  color: '#888',
+                  fontSize: 12,
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {isSpanish
+                  ? '🚨 Alertas descartadas hoy — toca para ver'
+                  : '🚨 Alerts dismissed for today — tap to view'}
+              </button>
             </div>
-          )}
-          {handoffs.length > 0 && (
-            <div style={{ background: '#111', border: '1px solid #D4AF37', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Notas' : 'Hand-offs'}</div>
-              <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: '#D4AF37', fontWeight: 700 }}>{handoffs.length}</div>
-              <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'últimas 24h' : 'last 24h'}</div>
+          );
+        }
+        return (
+          <div style={{ padding: '12px 16px 0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${[lowStockCount > 0, handoffs.length > 0, emailQueue.length > 0].filter(Boolean).length || 1}, 1fr)`, gap: 8 }}>
+              {lowStockCount > 0 && (
+                <div style={{ background: '#111', border: '1px solid #E05252', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Stock' : 'Stock'}</div>
+                  <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: '#E05252', fontWeight: 700 }}>{lowStockCount}</div>
+                  <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'bajo par' : 'below par'}</div>
+                </div>
+              )}
+              {handoffs.length > 0 && (
+                <div style={{ background: '#111', border: '1px solid #D4AF37', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Notas' : 'Hand-offs'}</div>
+                  <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: '#D4AF37', fontWeight: 700 }}>{handoffs.length}</div>
+                  <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'últimas 24h' : 'last 24h'}</div>
+                </div>
+              )}
+              {emailQueue.length > 0 && (
+                <div style={{ background: '#111', border: '1px solid #FFB84A', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Cola' : 'Queue'}</div>
+                  <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: '#FFB84A', fontWeight: 700 }}>{emailQueue.length}</div>
+                  <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'correos pendientes' : 'emails pending'}</div>
+                </div>
+              )}
             </div>
-          )}
-          {emailQueue.length > 0 && (
-            <div style={{ background: '#111', border: '1px solid #FFB84A', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontSize: 9, color: '#888', letterSpacing: '0.1em', fontWeight: 800, textTransform: 'uppercase' }}>{isSpanish ? 'Cola' : 'Queue'}</div>
-              <div style={{ fontSize: 22, fontFamily: 'Georgia, serif', color: '#FFB84A', fontWeight: 700 }}>{emailQueue.length}</div>
-              <div style={{ fontSize: 9, color: '#666' }}>{isSpanish ? 'correos pendientes' : 'emails pending'}</div>
-            </div>
-          )}
-        </div>
-      )}
+            <button
+              onClick={() => { dismissAlerts(currentSnapshot); loadData(); }}
+              style={{
+                marginTop: 8,
+                background: 'transparent',
+                border: '1px solid rgba(212,175,55,0.25)',
+                borderRadius: 6,
+                color: '#888',
+                fontSize: 11,
+                letterSpacing: '0.04em',
+                padding: '6px 12px',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                display: 'block',
+                marginLeft: 'auto',
+              }}
+            >
+              ✕ {isSpanish ? 'Descartar hasta mañana' : 'Dismiss until tomorrow'}
+            </button>
+          </div>
+        );
+      })()}
 
-      {/* ── Email Queue Panel — shows when any send has been deferred ── */}
-      {emailQueue.length > 0 && (
+      {/* ── Email Queue Panel — shows when any send has been deferred.
+              Hidden when the alert row is dismissed; the Alerts screen in
+              More still surfaces it. ── */}
+      {emailQueue.length > 0 && !alertsAreDismissed({ lowStock: lowStockCount, handoffs: handoffs.length, emailQueue: emailQueue.length }) && (
         <div style={{ padding: '12px 16px 0' }}>
           {/* Large-queue warning fires at 100+ — usually means EmailJS was
               never wired and reports have been piling up for days. Goes red

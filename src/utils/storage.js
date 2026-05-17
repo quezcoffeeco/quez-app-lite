@@ -1473,6 +1473,46 @@ export function isLocationOverridden() {
   const current = (getTodayLocation() || '').trim();
   return current !== '' && current !== scheduled;
 }
+
+// ── Owner-dashboard alert dismissal ─────────────────────────────────────
+// Snapshot of {lowStock, handoffs, emailQueue} counts that the owner has
+// dismissed today. Auto-expires when the date changes so morning-fresh
+// alerts surface again. The Alerts screen ignores this and always shows
+// the live state.
+const OWNER_ALERT_DISMISS_KEY = 'quez_owner_alerts_dismissed';
+function dateKeyForToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+export function getDismissedAlertSnapshot() {
+  try {
+    const raw = localStorage.getItem(OWNER_ALERT_DISMISS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed.dateKey !== dateKeyForToday()) return null;  // stale, auto-expires
+    return parsed.snapshot || null;
+  } catch { return null; }
+}
+export function dismissAlerts(snapshot) {
+  try {
+    localStorage.setItem(OWNER_ALERT_DISMISS_KEY, JSON.stringify({
+      dateKey: dateKeyForToday(),
+      snapshot,
+    }));
+  } catch {}
+}
+export function clearDismissedAlerts() {
+  try { localStorage.removeItem(OWNER_ALERT_DISMISS_KEY); } catch {}
+}
+// True when EVERY current alert count is <= the dismissed snapshot count
+// for the same day. A new alert (count growing) breaks dismissal.
+export function alertsAreDismissed(current) {
+  const snap = getDismissedAlertSnapshot();
+  if (!snap) return false;
+  return ['lowStock', 'handoffs', 'emailQueue'].every(
+    (k) => (current[k] || 0) <= (snap[k] || 0),
+  );
+}
 // Called on app boot — applies today's scheduled location IF set and IF the
 // current todayLocation doesn't already match (don't clobber a manual override
 // during the same day). Returns true if an auto-update fired.

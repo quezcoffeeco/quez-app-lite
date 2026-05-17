@@ -26,12 +26,16 @@ import AuditLog from './screens/AuditLog';
 import PreLaunchTimeline from './screens/PreLaunchTimeline';
 import WasteLog from './screens/WasteLog';
 import Inventory from './screens/Inventory';
+import AlertsScreen from './screens/AlertsScreen';
 
 import {
   checkAndSendIncompleteAlert,
   getEmployees,
   applyTrainingBypassIfEnabled,
+  getLowStockItems,
+  getHandoffNotes,
 } from './utils/storage';
+import { getEmailQueue } from './utils/emailjs';
 
 // ── Role helpers ──────────────────────────────────────────
 const ADMIN_ROLES = ['owner', 'manager'];
@@ -69,6 +73,24 @@ function getMoreItems(role, language) {
   const lang = language || 'en';
   const items = [];
 
+  // Alerts (owner/manager) — only surfaces when something is actually open.
+  // Keeps the menu from carrying a dead entry on quiet days.
+  if (ADMIN_ROLES.includes(role)) {
+    let alertCount = 0;
+    try {
+      alertCount = getLowStockItems().length
+        + getHandoffNotes().length
+        + getEmailQueue().length;
+    } catch {}
+    if (alertCount > 0) {
+      items.push({
+        screen: 'alerts',
+        icon: '🚨',
+        label: lang === 'es' ? `Alertas (${alertCount})` : `Alerts (${alertCount})`,
+      });
+    }
+  }
+
   // Drink Guide — shown in More for any role whose PRIMARY nav doesn't
   // already include it. Owner/manager + guest get it here; baristas and
   // trainees have it as a primary tab and don't need a duplicate.
@@ -96,54 +118,6 @@ function getMoreItems(role, language) {
 
   return items;
 }
-
-// ── Global clock ─ 12-hour h:mm + am/pm, top-right on every screen post-login ──
-function GlobalClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    // Tick every 15s so the minute roll never lags more than that
-    const id = setInterval(() => setNow(new Date()), 15 * 1000);
-    return () => clearInterval(id);
-  }, []);
-  const rawH = now.getHours();
-  const h12 = ((rawH + 11) % 12) + 1;
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const period = rawH < 12 ? 'am' : 'pm';
-  return (
-    <div style={clockStyles.pill} aria-label="Current time" className="quez-clock-pill">
-      {h12}<span style={clockStyles.colon}>:</span>{mm}
-      <span style={clockStyles.period} className="quez-clock-period">{period}</span>
-    </div>
-  );
-}
-
-const clockStyles = {
-  pill: {
-    position: 'fixed',
-    top: 'calc(10px + env(safe-area-inset-top, 0px))',
-    right: 12,
-    zIndex: 90,
-    background: 'rgba(13,13,13,0.78)',
-    backdropFilter: 'blur(10px)',
-    WebkitBackdropFilter: 'blur(10px)',
-    border: '1px solid rgba(212,175,55,0.40)',
-    borderRadius: 20,
-    padding: '5px 11px',
-    color: '#D4AF37',
-    fontFamily: "'Playfair Display', Georgia, serif",
-    fontSize: 14,
-    fontWeight: 700,
-    letterSpacing: '0.04em',
-    lineHeight: 1,
-    pointerEvents: 'none',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.45)',
-    display: 'inline-flex',
-    alignItems: 'baseline',
-    gap: 1,
-  },
-  colon: { opacity: 0.55, margin: '0 1px' },
-  period: { fontSize: 9, marginLeft: 4, opacity: 0.7, letterSpacing: '0.08em', fontWeight: 600 },
-};
 
 // ── Inner app ─────────────────────────────────────────────
 function AppInner() {
@@ -198,9 +172,6 @@ function AppInner() {
 
   return (
     <div className="app">
-      {/* Global clock — top-right on every post-login screen */}
-      <GlobalClock />
-
       <div className="app-content">
         {/* Guest mode banner — visible on every screen so the operator knows
             they're in read-only preview mode and changes won't persist. */}
@@ -241,6 +212,7 @@ function AppInner() {
         {currentScreen === 'preLaunchTimeline'   && <PreLaunchTimeline />}
         {currentScreen === 'wasteLog'            && <WasteLog />}
         {currentScreen === 'inventory'           && <Inventory />}
+        {currentScreen === 'alerts'              && <AlertsScreen />}
       </div>
 
       <nav className="app-nav">
