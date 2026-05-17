@@ -790,8 +790,10 @@ export default function OwnerDashboard() {
         </div>
       )}
 
-      {/* ── Storage health banner — only shows when there's something to act on ── */}
-      {storageHealth && (() => {
+      {/* ── Storage health banner — only shows when there's something to act on,
+              and respects the alert-dismissal so dismissing alerts hides this
+              banner too. Always visible from the Alerts screen in More. ── */}
+      {storageHealth && !alertsAreDismissed({ lowStock: lowStockCount, handoffs: handoffs.length, emailQueue: emailQueue.length }) && (() => {
         // EmailJS-not-configured row intentionally suppressed — the owner has
         // mentally noted the requirement and doesn't want repeated reminders.
         const lastBackup = storageHealth.lastBackupAt ? new Date(storageHealth.lastBackupAt) : null;
