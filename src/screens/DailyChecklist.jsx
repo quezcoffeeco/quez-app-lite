@@ -376,8 +376,12 @@ const DailyChecklist = () => {
   const handleRangeOk = (section, item) => {
     recordStartTime(section);
     const nextMeta = recordMeta(item.id);
+    // Toggle off if it's already OK — second tap clears the selection so the
+    // operator can undo without picking the opposite (which would change the
+    // meaning of the reading).
+    const newVal = values[item.id] === 'ok' ? '' : 'ok';
     setValues(prev => {
-      const next = { ...prev, [item.id]: 'ok' };
+      const next = { ...prev, [item.id]: newVal };
       persistState(next, sectionStartTimes, sectionSubmitted, nextMeta);
       return next;
     });
@@ -385,6 +389,17 @@ const DailyChecklist = () => {
 
   const handleRangeFlag = (section, item) => {
     recordStartTime(section);
+    // Tapping the flag button while already flagged clears the flag AND its
+    // corrective text — keeps the audit log honest, no orphaned correctives.
+    if (values[item.id] === 'flag') {
+      const nextMeta = recordMeta(item.id);
+      setValues(prev => {
+        const next = { ...prev, [item.id]: '', [`${item.id}_corrective`]: '' };
+        persistState(next, sectionStartTimes, sectionSubmitted, nextMeta);
+        return next;
+      });
+      return;
+    }
     setCorrectiveModal({ item, section });
   };
 
