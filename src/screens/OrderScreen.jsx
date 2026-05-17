@@ -644,30 +644,8 @@ export default function OrderScreen() {
       );
     }
 
-    // Bump Oldest — completes the order with the earliest createdAt. Real
-    // orders win priority over practice: if both kinds are in the queue,
-    // we never bump a practice order while a real one is aging. Only when
-    // the queue is all practice do we bump the oldest practice.
-    const realOrders = activeOrders.filter((o) => !o.practice);
-    const targetSet = realOrders.length > 0 ? realOrders : activeOrders;
-    const sortedByAge = [...targetSet].sort(
-      (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
-    );
-    const oldest = sortedByAge[0];
-    const canBumpOldest = oldest && targetSet.length >= 2 && !(isTrainee && !oldest.practice);
-
     return (
       <div style={S.queueList}>
-        {canBumpOldest && (
-          <button
-            style={S.bumpOldestBtn}
-            onClick={() => handleCompleteOrder(oldest)}
-          >
-            ↑ {lang === 'es'
-                ? `Cerrar el más antiguo (#${oldest.number})`
-                : `Bump Oldest (#${oldest.number})`}
-          </button>
-        )}
         {activeOrders.map((order) => {
           const total = order.items.length;
           const hasSpecial = order.items.some(hasColdHoneyMix);
@@ -2138,6 +2116,8 @@ const S = {
     padding: '5px 10px',
     fontWeight: 700,
     fontSize: 13,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   headerRight: { display: 'flex', alignItems: 'center', gap: 8 },
   windowPill: {
@@ -2207,20 +2187,6 @@ const S = {
     cursor: 'not-allowed',
     opacity: 0.6,
   },
-  bumpOldestBtn: {
-    width: '100%',
-    background: 'linear-gradient(180deg, rgba(212,175,55,0.16), rgba(212,175,55,0.04) 70%)',
-    border: '1px solid #D4AF37',
-    color: '#D4AF37',
-    borderRadius: 10,
-    padding: '10px 14px',
-    fontWeight: 800,
-    fontSize: 13,
-    letterSpacing: '0.10em',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    marginBottom: 12,
-  },
   timerPill: {
     background: '#0D0D0D',
     border: '1px solid',
@@ -2231,6 +2197,8 @@ const S = {
     fontVariantNumeric: 'tabular-nums',
     minWidth: 64,
     textAlign: 'center',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   recipeBtn: {
     background: 'rgba(212,175,55,0.12)',
