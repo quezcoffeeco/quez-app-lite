@@ -565,6 +565,7 @@ export const CLOSING_ITEMS = [
         labelEs: '¿Problemas anotados hoy? (marcar si es sí)',
         note: 'If yes — complete Incident Log',
         noteEs: 'Si es sí — completar Registro de Incidentes',
+        required: false,
       },
     ],
   },

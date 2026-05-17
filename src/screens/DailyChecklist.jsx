@@ -29,6 +29,10 @@ const fmtDate = () =>
 
 const isItemComplete = (item, values) => {
   const val = values[item.id];
+  // Items explicitly marked required:false don't gate the submit — they're
+  // conditional ("check if yes", "leave blank if none"). Treated as complete
+  // no matter what so the operator can submit without forcing a false answer.
+  if (item.required === false) return true;
   if (item.type === 'check') return val === 'yes';
   if (item.type === 'range') return val === 'ok' || val === 'flag';
   if (item.type === 'text') {
@@ -447,10 +451,16 @@ const DailyChecklist = () => {
   const closingComplete = isSectionGroupComplete(CLOSING_ITEMS, values);
 
   // ── Progress ──────────────────────────────────────────────
+  // Only count items that actually gate the submit. Optional items (the
+  // conditional ones marked required:false) are never blockers, so they
+  // don't belong in the denominator either.
   const allGroups = [...OPENING_ITEMS, ...MID_SERVICE_ITEMS, ...CLOSING_ITEMS];
-  const totalItems = allGroups.reduce((a, g) => a + g.items.filter(i => i.type !== 'text' || i.required).length, 0);
-  const doneItems = allGroups.reduce((a, g) => a + g.items.filter(item => isItemComplete(item, values)).length, 0);
-  const progressPct = Math.round((doneItems / totalItems) * 100);
+  const requiredItems = allGroups.flatMap((g) =>
+    g.items.filter((i) => i.required !== false && (i.type !== 'text' || i.required)),
+  );
+  const totalItems = requiredItems.length;
+  const doneItems = requiredItems.filter((item) => isItemComplete(item, values)).length;
+  const progressPct = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 100;
 
   // ── Submit section ────────────────────────────────────────
   const handleSectionSubmit = async (section) => {
