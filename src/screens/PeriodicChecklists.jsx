@@ -115,9 +115,11 @@ const CHECKLISTS = [
 ];
 
 // ── Attribution pill (who last touched this item) ────────────
-function initialsOf(name) {
+function firstNameOf(name) {
   if (!name) return '?';
-  return name.split(/\s+/).map((p) => p[0]?.toUpperCase()).filter(Boolean).slice(0, 2).join('');
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0] || '?';
+  return first.length > 8 ? first.slice(0, 7) + '…' : first;
 }
 const AttribPill = ({ byName, at }) => {
   if (!byName) return null;
@@ -126,15 +128,15 @@ const AttribPill = ({ byName, at }) => {
     <span
       title={`${byName}${timeStr ? ' · ' + timeStr : ''}`}
       style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 22, height: 22, borderRadius: '50%',
-        background: 'rgba(212,175,55,0.12)',
-        border: '1px solid rgba(212,175,55,0.4)',
-        color: '#D4AF37', fontSize: 9, fontWeight: 800,
-        letterSpacing: '0.04em', flexShrink: 0, marginRight: 8,
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        height: 28, padding: '0 10px', borderRadius: 14,
+        background: '#D4AF37', color: '#0D0D0D',
+        fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
+        flexShrink: 0, marginRight: 8, whiteSpace: 'nowrap',
       }}
     >
-      {initialsOf(byName)}
+      <span style={{ fontSize: 9, opacity: 0.7 }}>✓</span>
+      {firstNameOf(byName)}
     </span>
   );
 };
@@ -500,7 +502,7 @@ export default function PeriodicChecklists() {
                       className={`periodic-item ${state.checked ? 'periodic-item--checked' : ''}`}
                     >
                       <div className="periodic-item__row">
-                        <AttribPill byName={state.byName} at={state.at} />
+                        {state.checked && <AttribPill byName={state.byName} at={state.at} />}
                         {/* Custom checkbox */}
                         <div
                           className={`periodic-item__check-box ${

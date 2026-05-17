@@ -107,35 +107,42 @@ const CorrectiveModal = ({ item, lang, onSave, onClose }) => {
 
 // ── Range Toggle Item ─────────────────────────────────────
 // ── Attribution Pill ──────────────────────────────────────
-// Small initials circle showing who last touched this item, with the full
-// name in the title tooltip. Visible cross-platform once the JSON state
-// syncs via the auto-backup email or shared device localStorage.
-function initialsOf(name) {
+// Shows WHO is currently the last touch on this item. The first-name pill
+// (gold filled, dark text) is loud enough to read at a glance from across
+// the bar so any teammate can answer "did John check that?"
+function firstNameOf(name) {
   if (!name) return '?';
-  return name.split(/\s+/).map((p) => p[0]?.toUpperCase()).filter(Boolean).slice(0, 2).join('');
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0] || '?';
+  return first.length > 8 ? first.slice(0, 7) + '…' : first;
 }
 const AttribPill = ({ meta }) => {
   if (!meta?.byName) return null;
+  const timeStr = meta.at
+    ? new Date(meta.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    : '';
   return (
     <span
-      title={`${meta.byName} · ${meta.at ? new Date(meta.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}`}
+      title={`${meta.byName}${timeStr ? ' · ' + timeStr : ''}`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        width: 22, height: 22,
-        borderRadius: '50%',
-        background: 'rgba(212,175,55,0.12)',
-        border: '1px solid rgba(212,175,55,0.4)',
-        color: '#D4AF37',
-        fontSize: 9,
+        gap: 4,
+        height: 28,
+        padding: '0 10px',
+        borderRadius: 14,
+        background: '#D4AF37',
+        color: '#0D0D0D',
+        fontSize: 11,
         fontWeight: 800,
         letterSpacing: '0.04em',
         flexShrink: 0,
         marginRight: 8,
+        whiteSpace: 'nowrap',
       }}
     >
-      {initialsOf(meta.byName)}
+      <span style={{ fontSize: 9, opacity: 0.7 }}>✓</span>
+      {firstNameOf(meta.byName)}
     </span>
   );
 };
@@ -155,7 +162,7 @@ const RangeItem = ({ item, lang, value, meta, onOk, onFlag }) => {
         {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
       <div style={styles.rangeToggle}>
-        <AttribPill meta={meta} />
+        {(isOk || isFlagged) && <AttribPill meta={meta} />}
         <button
           style={{ ...styles.rangeBtn, ...(isOk ? styles.rangeBtnOk : styles.rangeBtnOkInactive) }}
           onClick={onOk} type="button" aria-label="Within range"
@@ -182,7 +189,7 @@ const CheckItem = ({ item, lang, value, meta, onChange }) => {
         {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        <AttribPill meta={meta} />
+        {isChecked && <AttribPill meta={meta} />}
         <button
           style={{ ...styles.checkBtn, ...(isChecked ? styles.checkBtnOn : styles.checkBtnOff) }}
           onClick={() => onChange(isChecked ? '' : 'yes')} type="button"
@@ -206,7 +213,7 @@ const TextItem = ({ item, lang, value, meta, onChange }) => {
         {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        <AttribPill meta={meta} />
+        {value && value.trim() !== '' && <AttribPill meta={meta} />}
         <input
           style={styles.textInput}
           type="text"
