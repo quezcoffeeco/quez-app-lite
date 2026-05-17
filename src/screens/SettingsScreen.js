@@ -824,7 +824,7 @@ function ConfirmModal({message, onConfirm, onClose}) {
   );
 }
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ initialSection = 'employees' }) {
   const { language, setLanguage, currentUser } = useApp();
   const viewerIsOwner = currentUser?.role === 'owner';
   const [settings, setSettingsState] = useState(()=>getSettings());
@@ -833,7 +833,9 @@ export default function SettingsScreen() {
     const m = getMenu();
     return m.length > 0 ? m : DEFAULT_MENU_DRINKS;
   });
-  const [expanded, setExpanded] = useState('employees');
+  // initialSection is set by deep-link routes like 'settings:menu' so opening
+  // a specific Admin tile lands directly on the right accordion section.
+  const [expanded, setExpanded] = useState(initialSection || 'employees');
   const [toast, showToast] = useToast();
   const [empModal, setEmpModal] = useState(null);
   const [drinkModal, setDrinkModal] = useState(null);

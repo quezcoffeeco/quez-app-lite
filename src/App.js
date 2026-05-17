@@ -199,7 +199,7 @@ function AppInner() {
         {currentScreen === 'dashboard'           && <Dashboard />}
         {currentScreen === 'dailyChecklist'      && <DailyChecklist />}
         {currentScreen === 'periodicChecklists'  && <PeriodicChecklists />}
-        {currentScreen === 'settings'            && <SettingsScreen />}
+        {currentScreen.startsWith('settings')    && <SettingsScreen initialSection={currentScreen.includes(':') ? currentScreen.split(':')[1] : ''} />}
         {currentScreen === 'training'            && <TrainingPortal />}
         {currentScreen === 'trainingApproval'    && <TrainingApproval />}
         {currentScreen === 'drinkGuide'          && <DrinkGuide />}

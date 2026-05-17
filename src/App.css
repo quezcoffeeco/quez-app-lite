@@ -233,6 +233,13 @@ body::before {
   }
 }
 
+/* ── Admin tile grid: phone single-column, tablet 2-3 column ──────── */
+@media (min-width: 820px) {
+  .quez-admin-grid {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)) !important;
+  }
+}
+
 /* ── MegaStat font scales down once the card has tablet width to itself.
    Phone keeps the 56px number; tablet drops to ~44px so the glyph doesn't
    dwarf the ~380px-wide tiled card. !important overrides the inline style
