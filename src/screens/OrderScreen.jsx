@@ -551,17 +551,6 @@ export default function OrderScreen() {
       : `${items.length}-drink catering order created`);
   };
 
-  // Toggle priority star on a single line item — purely a visual signal to
-  // the bar about which drink to build first. Persisted on the order item so
-  // it survives the 5-second poll re-fetch.
-  const toggleItemPriority = (order, itemId) => {
-    const items = order.items.map((it) =>
-      it.itemId === itemId ? { ...it, priority: !it.priority } : it
-    );
-    updateOrderItems(order.id, items);
-    loadOrders();
-  };
-
   // Toggle visual "built" state on a single line — strikethrough so the
   // barista doesn't double-build a drink on a multi-drink ticket. Cosmetic
   // only: Mark Complete still works regardless of which lines are checked.
@@ -864,22 +853,10 @@ export default function OrderScreen() {
                   <div key={it.itemId} style={{
                     ...S.queueItem,
                     ...(hasColdHoneyMix(it) ? S.queueItemWarn : {}),
-                    ...(it.priority ? S.queueItemPriority : {}),
                     ...(it.built ? S.queueItemBuilt : {}),
                   }}>
                     <div style={S.itemMain}>
                       <div style={S.itemTop}>
-                        <button
-                          style={{
-                            background: 'transparent', border: 'none', padding: '0 4px 0 0',
-                            cursor: 'pointer', fontSize: 16, lineHeight: 1,
-                            color: it.priority ? '#D4AF37' : '#555',
-                          }}
-                          onClick={() => toggleItemPriority(order, it.itemId)}
-                          title={lang === 'es' ? 'Prioridad' : 'Priority'}
-                        >
-                          {it.priority ? '★' : '☆'}
-                        </button>
                         {/* Built checkbox — visual strikethrough only. Mark Complete
                             still completes the whole ticket regardless of which
                             lines are checked off. Helps prevent double-builds. */}
@@ -2108,10 +2085,6 @@ const S = {
   queueItemWarn: {
     background: 'rgba(224,82,82,0.07)',
     border: '1px solid #E05252',
-  },
-  queueItemPriority: {
-    borderLeft: '3px solid #D4AF37',
-    background: 'rgba(212,175,55,0.04)',
   },
   // Built (strikethrough): dim the row so the eye skips it on re-glance.
   queueItemBuilt: {
