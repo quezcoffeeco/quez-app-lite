@@ -71,8 +71,11 @@ function CollapsiblePanel({ id, icon, title, headerRight, children, defaultColla
     setCollapsed(next);
     persistPanelCollapsed(id, next);
   };
+  // When inside the .quez-card-grid wrapper, collapsed panels tile into
+  // columns (compact iPad view) and expanded panels span the full row so
+  // wide content like badge rows isn't squeezed.
   return (
-    <div style={S.panel}>
+    <div className={collapsed ? undefined : 'quez-card-full'} style={S.panel}>
       <div style={{ ...S.panelHeader, borderBottom: collapsed ? 'none' : S.panelHeader.borderBottom }}>
         <button
           type="button"
@@ -91,6 +94,7 @@ function CollapsiblePanel({ id, icon, title, headerRight, children, defaultColla
             font: 'inherit',
             textAlign: 'left',
             minWidth: 0,
+            minHeight: 44,
           }}
         >
           <span style={S.panelIcon}>{icon}</span>
@@ -317,16 +321,18 @@ const S = {
   },
   // Refresh button
   refreshBtn: {
-    background: 'none',
-    border: 'none',
+    background: 'transparent',
+    border: '1px solid rgba(212,175,55,0.35)',
     color: '#D4AF37',
-    fontSize: '0.72rem',
+    fontSize: '0.78rem',
     fontFamily: 'sans-serif',
     letterSpacing: '0.04em',
     cursor: 'pointer',
     marginLeft: 'auto',
-    opacity: 0.7,
-    padding: '2px 4px',
+    padding: '0 14px',
+    minHeight: 44,
+    borderRadius: 8,
+    fontWeight: 700,
   },
 };
 
@@ -827,6 +833,11 @@ export default function OwnerDashboard() {
         );
       })()}
 
+      {/* Below this line the panels and tiles tile into a multi-column
+          grid on iPad (≥820px). Above stays full-width because it's the
+          alert/CTA strip the owner reads first. Expanded panels still
+          span all columns so badge rows + flagged items aren't squeezed. */}
+      <div className="quez-card-grid" style={{ padding: '14px 16px 0' }}>
       {/* ── Hand-off Notes (recent 24h) ── */}
       {handoffs.length > 0 && (
         <CollapsiblePanel
@@ -857,6 +868,26 @@ export default function OwnerDashboard() {
         id="dailyChecklist"
         icon="☑"
         title={isSpanish ? 'Checklist Diario de Hoy' : "Today's Daily Checklist"}
+        headerRight={(() => {
+          // Surface section completion on the collapsed header so the owner
+          // doesn't have to expand each panel to see whether opening/mid/
+          // closing have been submitted.
+          const done = [dailyStatus.opening, dailyStatus.midService, dailyStatus.closing].filter(Boolean).length;
+          const total = 3;
+          const allDone = done === total;
+          const noneDone = done === 0;
+          return (
+            <span style={{
+              background: allDone ? 'rgba(76,175,80,0.10)' : noneDone ? 'rgba(224,82,82,0.10)' : 'rgba(255,184,74,0.10)',
+              border: '1px solid ' + (allDone ? 'rgba(76,175,80,0.5)' : noneDone ? 'rgba(224,82,82,0.5)' : 'rgba(255,184,74,0.5)'),
+              color: allDone ? '#4CAF50' : noneDone ? '#E05252' : '#FFB84A',
+              fontSize: '0.72rem', fontFamily: 'sans-serif', fontWeight: 700,
+              borderRadius: 10, padding: '3px 9px', whiteSpace: 'nowrap',
+            }}>
+              {done}/{total}{allDone ? ' ✓' : ''}
+            </span>
+          );
+        })()}
       >
         {[
           { key: 'opening', label: isSpanish ? 'Apertura' : 'Opening' },
@@ -886,24 +917,43 @@ export default function OwnerDashboard() {
         id="periodicChecklists"
         icon="📅"
         title={isSpanish ? 'Checklists Periódicos' : 'Periodic Checklists'}
-        headerRight={
-          <button
-            style={{
-              background: 'rgba(212,175,55,0.12)',
-              border: '1px solid rgba(212,175,55,0.3)',
-              borderRadius: 6,
-              color: '#D4AF37',
-              fontFamily: 'sans-serif',
-              fontSize: '0.68rem',
-              letterSpacing: '0.05em',
-              padding: '4px 10px',
-              cursor: 'pointer',
-            }}
-            onClick={() => navigate('periodicChecklists')}
-          >
-            {isSpanish ? 'Abrir →' : 'Open →'}
-          </button>
-        }
+        headerRight={(() => {
+          const dueUnsubmitted = periodicRows.filter((r) => r.due && !r.submitted).length;
+          const anyDue = periodicRows.some((r) => r.due);
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {anyDue && (
+                <span style={{
+                  background: dueUnsubmitted > 0 ? 'rgba(224,82,82,0.10)' : 'rgba(76,175,80,0.10)',
+                  border: '1px solid ' + (dueUnsubmitted > 0 ? 'rgba(224,82,82,0.5)' : 'rgba(76,175,80,0.5)'),
+                  color: dueUnsubmitted > 0 ? '#E05252' : '#4CAF50',
+                  fontSize: '0.72rem', fontFamily: 'sans-serif', fontWeight: 700,
+                  borderRadius: 10, padding: '3px 9px', whiteSpace: 'nowrap',
+                }}>
+                  {dueUnsubmitted > 0
+                    ? (isSpanish ? `${dueUnsubmitted} PEND` : `${dueUnsubmitted} DUE`)
+                    : '✓'}
+                </span>
+              )}
+              <button
+                style={{
+                  background: 'rgba(212,175,55,0.12)',
+                  border: '1px solid rgba(212,175,55,0.3)',
+                  borderRadius: 6,
+                  color: '#D4AF37',
+                  fontFamily: 'sans-serif',
+                  fontSize: '0.68rem',
+                  letterSpacing: '0.05em',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                }}
+                onClick={() => navigate('periodicChecklists')}
+              >
+                {isSpanish ? 'Abrir →' : 'Open →'}
+              </button>
+            </div>
+          );
+        })()}
       >
         {periodicRows.map((row, i) => {
           const isLast = i === periodicRows.length - 1;
@@ -1206,6 +1256,8 @@ export default function OwnerDashboard() {
           </>
         )}
       </CollapsiblePanel>
+      </div>
+      {/* end .quez-card-grid */}
 
       {/* ── Footer spacing ── */}
       <div style={{ height: 16 }} />

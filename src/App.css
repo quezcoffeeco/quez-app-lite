@@ -204,3 +204,41 @@ body::before {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Dashboard card grid ───────────────────────────────────────────────
+   Phone: single column (cards stack as before). Tablet+: tile cards into
+   2-3 columns to use horizontal space. The hero card, daily checklist
+   link, and other "must be wide" elements opt into full-width via the
+   .quez-card-full helper. Each card already brings its own marginBottom
+   for the phone layout, so we zero those out inside the grid to avoid
+   double spacing. */
+.quez-card-grid > * {
+  margin: 0 !important;
+}
+@media (min-width: 820px) {
+  .quez-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+  .quez-card-full {
+    grid-column: 1 / -1;
+  }
+}
+/* Phone fallback: re-apply per-card spacing since we zeroed it above. */
+@media (max-width: 819px) {
+  .quez-card-grid > * + * {
+    margin-top: 14px;
+  }
+}
+
+/* ── MegaStat font scales down once the card has tablet width to itself.
+   Phone keeps the 56px number; tablet drops to ~44px so the glyph doesn't
+   dwarf the ~380px-wide tiled card. !important overrides the inline style
+   the JS sets for backwards compatibility. */
+@media (min-width: 820px) {
+  .quez-megastat-num {
+    font-size: 44px !important;
+  }
+}

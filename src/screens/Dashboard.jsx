@@ -320,49 +320,62 @@ function TraineeDashboard({ user, language }) {
             );
           }
 
-          return safeOrder.map((id, idx) => {
-            const content = CARDS[id]?.();
-            const isPinned = PINNED.includes(id);
-            const isHidden = hidden.has(id);
-            if (!editMode && (isHidden || !content)) return null;
-            return (
-              <div key={id} style={S.cardWrapper}>
-                {content || (
-                  <div style={S.cardStub}>
-                    <span style={{ color: '#666', fontSize: 11, fontStyle: 'italic' }}>
-                      {lang === 'es' ? 'Vacío ahora — aparecerá cuando aplique' : 'Empty now — appears when relevant'}
-                    </span>
-                  </div>
-                )}
-                {editMode && (
-                  <div style={S.cardEditOverlay}>
-                    <button
-                      style={{ ...S.cardEditBtn, opacity: idx === 0 ? 0.3 : 1 }}
-                      disabled={idx === 0}
-                      onClick={() => moveCard(id, 'up')}
-                      title="Move up"
-                    >↑</button>
-                    <button
-                      style={{ ...S.cardEditBtn, opacity: idx === safeOrder.length - 1 ? 0.3 : 1 }}
-                      disabled={idx === safeOrder.length - 1}
-                      onClick={() => moveCard(id, 'down')}
-                      title="Move down"
-                    >↓</button>
-                    {isPinned ? (
-                      <span style={S.cardPinned} title="Pinned — can't be hidden">📌</span>
-                    ) : (
-                      <button
-                        style={{ ...S.cardEditBtn, color: isHidden ? '#E05252' : '#D4AF37' }}
-                        onClick={() => toggleHide(id)}
-                        title={isHidden ? 'Show' : 'Hide'}
-                      >{isHidden ? '🚫' : '👁'}</button>
+          // Trainee dashboard: trainingProgress and practiceRound carry the
+          // full-width signal (giant phase counter + main CTA), other cards
+          // can tile on tablet.
+          const FULL_SPAN_T = new Set(['trainingProgress', 'practiceRound']);
+          return (
+            <div className="quez-card-grid">
+              {safeOrder.map((id, idx) => {
+                const content = CARDS[id]?.();
+                const isPinned = PINNED.includes(id);
+                const isHidden = hidden.has(id);
+                if (!editMode && (isHidden || !content)) return null;
+                const fullSpan = FULL_SPAN_T.has(id);
+                return (
+                  <div
+                    key={id}
+                    className={fullSpan ? 'quez-card-full' : undefined}
+                    style={S.cardWrapper}
+                  >
+                    {content || (
+                      <div style={S.cardStub}>
+                        <span style={{ color: '#666', fontSize: 11, fontStyle: 'italic' }}>
+                          {lang === 'es' ? 'Vacío ahora — aparecerá cuando aplique' : 'Empty now — appears when relevant'}
+                        </span>
+                      </div>
                     )}
+                    {editMode && (
+                      <div style={S.cardEditOverlay}>
+                        <button
+                          style={{ ...S.cardEditBtn, opacity: idx === 0 ? 0.3 : 1 }}
+                          disabled={idx === 0}
+                          onClick={() => moveCard(id, 'up')}
+                          title="Move up"
+                        >↑</button>
+                        <button
+                          style={{ ...S.cardEditBtn, opacity: idx === safeOrder.length - 1 ? 0.3 : 1 }}
+                          disabled={idx === safeOrder.length - 1}
+                          onClick={() => moveCard(id, 'down')}
+                          title="Move down"
+                        >↓</button>
+                        {isPinned ? (
+                          <span style={S.cardPinned} title="Pinned — can't be hidden">📌</span>
+                        ) : (
+                          <button
+                            style={{ ...S.cardEditBtn, color: isHidden ? '#E05252' : '#D4AF37' }}
+                            onClick={() => toggleHide(id)}
+                            title={isHidden ? 'Show' : 'Hide'}
+                          >{isHidden ? '🚫' : '👁'}</button>
+                        )}
+                      </div>
+                    )}
+                    {editMode && isHidden && <div style={S.cardHiddenOverlay} />}
                   </div>
-                )}
-                {editMode && isHidden && <div style={S.cardHiddenOverlay} />}
-              </div>
-            );
-          });
+                );
+              })}
+            </div>
+          );
         })()}
       </div>
     </div>
@@ -645,7 +658,7 @@ function ShiftDashboard({ user, language }) {
             },
             megaStat: () => (
               <button style={S.megaStatBtn} onClick={() => !editMode && navigate('orders')}>
-                <div style={S.megaStatNum}>{openOrderCount}</div>
+                <div className="quez-megastat-num" style={S.megaStatNum}>{openOrderCount}</div>
                 <div style={S.megaStatLbl}>
                   {openOrderCount === 1
                     ? (lang === 'es' ? 'pedido en la cola' : 'order on deck')
@@ -914,51 +927,66 @@ function ShiftDashboard({ user, language }) {
               </div>
             );
           }
-          return safeOrder.map((id, idx) => {
-            const content = CARDS[id]?.();
-            // Skip cards that have no content right now, unless in edit mode
-            // (in edit mode show a stub so the user can still reorder them)
-            const isPinned = PINNED.includes(id);
-            const isHidden = hidden.has(id);
-            if (!editMode && (isHidden || !content)) return null;
-            return (
-              <div key={id} style={S.cardWrapper}>
-                {content || (
-                  <div style={S.cardStub}>
-                    <span style={{ color: '#666', fontSize: 11, fontStyle: 'italic' }}>
-                      {lang === 'es' ? 'Vacío ahora — aparecerá cuando aplique' : 'Empty now — appears when relevant'}
-                    </span>
-                  </div>
-                )}
-                {editMode && (
-                  <div style={S.cardEditOverlay}>
-                    <button
-                      style={{ ...S.cardEditBtn, opacity: idx === 0 ? 0.3 : 1 }}
-                      disabled={idx === 0}
-                      onClick={() => moveCard(id, 'up')}
-                      title="Move up"
-                    >↑</button>
-                    <button
-                      style={{ ...S.cardEditBtn, opacity: idx === safeOrder.length - 1 ? 0.3 : 1 }}
-                      disabled={idx === safeOrder.length - 1}
-                      onClick={() => moveCard(id, 'down')}
-                      title="Move down"
-                    >↓</button>
-                    {isPinned ? (
-                      <span style={S.cardPinned} title="Pinned — can't be hidden">📌</span>
-                    ) : (
-                      <button
-                        style={{ ...S.cardEditBtn, color: isHidden ? '#E05252' : '#D4AF37' }}
-                        onClick={() => toggleHide(id)}
-                        title={isHidden ? 'Show' : 'Hide'}
-                      >{isHidden ? '🚫' : '👁'}</button>
+          // Cards that should span the full dashboard width on tablet+. The
+          // hero card carries 3-col content; the checklist / periodic links
+          // need to be visible at a glance because they go red when pending;
+          // quickActions is a row of equal-width buttons that looks weird
+          // squeezed into a single grid cell.
+          const FULL_SPAN = new Set([
+            'briefing', 'dailyChecklistLink', 'periodicLink', 'quickActions', 'weather',
+          ]);
+          return (
+            <div className="quez-card-grid">
+              {safeOrder.map((id, idx) => {
+                const content = CARDS[id]?.();
+                const isPinned = PINNED.includes(id);
+                const isHidden = hidden.has(id);
+                if (!editMode && (isHidden || !content)) return null;
+                const fullSpan = FULL_SPAN.has(id);
+                return (
+                  <div
+                    key={id}
+                    className={fullSpan ? 'quez-card-full' : undefined}
+                    style={S.cardWrapper}
+                  >
+                    {content || (
+                      <div style={S.cardStub}>
+                        <span style={{ color: '#666', fontSize: 11, fontStyle: 'italic' }}>
+                          {lang === 'es' ? 'Vacío ahora — aparecerá cuando aplique' : 'Empty now — appears when relevant'}
+                        </span>
+                      </div>
                     )}
+                    {editMode && (
+                      <div style={S.cardEditOverlay}>
+                        <button
+                          style={{ ...S.cardEditBtn, opacity: idx === 0 ? 0.3 : 1 }}
+                          disabled={idx === 0}
+                          onClick={() => moveCard(id, 'up')}
+                          title="Move up"
+                        >↑</button>
+                        <button
+                          style={{ ...S.cardEditBtn, opacity: idx === safeOrder.length - 1 ? 0.3 : 1 }}
+                          disabled={idx === safeOrder.length - 1}
+                          onClick={() => moveCard(id, 'down')}
+                          title="Move down"
+                        >↓</button>
+                        {isPinned ? (
+                          <span style={S.cardPinned} title="Pinned — can't be hidden">📌</span>
+                        ) : (
+                          <button
+                            style={{ ...S.cardEditBtn, color: isHidden ? '#E05252' : '#D4AF37' }}
+                            onClick={() => toggleHide(id)}
+                            title={isHidden ? 'Show' : 'Hide'}
+                          >{isHidden ? '🚫' : '👁'}</button>
+                        )}
+                      </div>
+                    )}
+                    {editMode && isHidden && <div style={S.cardHiddenOverlay} />}
                   </div>
-                )}
-                {editMode && isHidden && <div style={S.cardHiddenOverlay} />}
-              </div>
-            );
-          });
+                );
+              })}
+            </div>
+          );
         })()}
       </div>
 
@@ -1273,8 +1301,9 @@ const S = {
     border: '1px solid rgba(212,175,55,0.40)',
     color: '#D4AF37',
     borderRadius: 8,
-    padding: '7px 14px',
-    fontSize: 12,
+    padding: '0 16px',
+    minHeight: 44,
+    fontSize: 13,
     fontWeight: 700,
     letterSpacing: '0.06em',
     cursor: 'pointer',
@@ -1285,8 +1314,9 @@ const S = {
     border: 'none',
     color: '#0D0D0D',
     borderRadius: 8,
-    padding: '7px 14px',
-    fontSize: 12,
+    padding: '0 16px',
+    minHeight: 44,
+    fontSize: 13,
     fontWeight: 800,
     letterSpacing: '0.06em',
     cursor: 'pointer',
@@ -1309,24 +1339,24 @@ const S = {
     backdropFilter: 'blur(6px)',
   },
   cardEditBtn: {
-    width: 26,
-    height: 26,
+    width: 44,
+    height: 44,
     background: 'transparent',
     border: 'none',
     color: '#D4AF37',
-    borderRadius: 5,
-    fontSize: 13,
+    borderRadius: 6,
+    fontSize: 16,
     fontWeight: 700,
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
   cardPinned: {
-    width: 26,
-    height: 26,
+    width: 44,
+    height: 44,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 13,
+    fontSize: 16,
   },
   cardHiddenOverlay: {
     position: 'absolute',
