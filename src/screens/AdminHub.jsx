@@ -34,6 +34,9 @@ export default function AdminHub() {
     (isAnnualChecklistDue() && !isAnnualSubmittedThisYear());
 
   // Tile shape: { route, icon, title, desc, badge?, ownerOnly? }
+  // Sections reordered so the most-frequent reasons to open Admin land
+  // at the top: numbers / stock / waste, then people, then the menu, then
+  // schedule + compliance, then rare technical config.
   const SECTIONS = [
     {
       id: 'operations',
@@ -49,10 +52,6 @@ export default function AdminHub() {
         { route: 'wasteLog', icon: '🗑',
           title: lang === 'es' ? 'Registro de Desperdicio' : 'Waste & Remake Log',
           desc:  lang === 'es' ? 'Bebidas desechadas con motivo' : 'Track dumped drinks with reasons' },
-        { route: 'periodicChecklists', icon: '📅',
-          title: lang === 'es' ? 'Listas Periódicas' : 'Periodic Checklists',
-          desc:  lang === 'es' ? 'Semanal · Mensual · Trimestral · Anual' : 'Weekly · Monthly · Quarterly · Annual',
-          badge: periodicDue ? '!' : 0 },
       ],
     },
     {
@@ -70,6 +69,9 @@ export default function AdminHub() {
         { route: 'settings:employees', icon: '👥',
           title: lang === 'es' ? 'Empleados' : 'Employees',
           desc:  lang === 'es' ? 'Agregar · editar · roles · PINs · salarios' : 'Add · edit · roles · PINs · wages' },
+        { route: 'settings:training', icon: '🎯', ownerOnly: true,
+          title: lang === 'es' ? 'Ajustes de Entrenamiento' : 'Training Settings',
+          desc:  lang === 'es' ? 'Bypass para demos · pasos de aprobación' : 'Demo bypass · approval flow' },
       ],
     },
     {
@@ -82,21 +84,25 @@ export default function AdminHub() {
         { route: 'settings:todayOps', icon: '✦',
           title: lang === 'es' ? 'Operaciones de Hoy' : "Today's Operations",
           desc:  lang === 'es' ? 'Estacional · ubicación · meta · playlist' : 'Seasonal · location · goal · playlist' },
-      ],
-    },
-    {
-      id: 'locations',
-      label: lang === 'es' ? 'Ubicación y Horarios' : 'Locations & Timing',
-      tiles: [
         { route: 'settings:locations', icon: '📍',
           title: lang === 'es' ? 'Ubicaciones' : 'Locations',
           desc:  lang === 'es' ? 'Lista de paradas · horario semanal' : 'Stops list · weekly schedule' },
-        { route: 'settings:timeLocks', icon: '🕐',
-          title: lang === 'es' ? 'Bloqueos de Hora' : 'Time Locks',
-          desc:  lang === 'es' ? 'Cuándo se desbloquean apertura y cierre' : 'When opening / closing unlock' },
+      ],
+    },
+    {
+      id: 'compliance',
+      label: lang === 'es' ? 'Horario y Cumplimiento' : 'Schedule & Compliance',
+      tiles: [
+        { route: 'periodicChecklists', icon: '📅',
+          title: lang === 'es' ? 'Listas Periódicas' : 'Periodic Checklists',
+          desc:  lang === 'es' ? 'Semanal · Mensual · Trimestral · Anual' : 'Weekly · Monthly · Quarterly · Annual',
+          badge: periodicDue ? '!' : 0 },
         { route: 'settings:periodicDue', icon: '🗓',
           title: lang === 'es' ? 'Horario de Periódicos' : 'Periodic Schedule',
           desc:  lang === 'es' ? 'Cuándo vencen semanal · mensual · trimestral · anual' : 'When weekly · monthly · quarterly · annual are due' },
+        { route: 'settings:timeLocks', icon: '🕐',
+          title: lang === 'es' ? 'Bloqueos de Hora' : 'Time Locks',
+          desc:  lang === 'es' ? 'Cuándo se desbloquean apertura y cierre' : 'When opening / closing unlock' },
       ],
     },
     {
@@ -112,9 +118,6 @@ export default function AdminHub() {
         { route: 'settings:dataBackup', icon: '💾',
           title: lang === 'es' ? 'Datos y Respaldo' : 'Data & Backup',
           desc:  lang === 'es' ? 'Exportar · restaurar · auto-respaldo' : 'Export · restore · auto-backup' },
-        { route: 'settings:training', icon: '🎯', ownerOnly: true,
-          title: lang === 'es' ? 'Ajustes de Entrenamiento' : 'Training Settings',
-          desc:  lang === 'es' ? 'Bypass para demos · pasos de aprobación' : 'Demo bypass · approval flow' },
         { route: 'settings:language', icon: '🌐',
           title: lang === 'es' ? 'Idioma' : 'Language',
           desc:  lang === 'es' ? 'Inglés · Español' : 'English · Spanish' },
