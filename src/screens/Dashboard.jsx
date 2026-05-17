@@ -1157,8 +1157,8 @@ const S = {
     padding: '12px 10px',
     textAlign: 'center',
   },
-  statLabel: { fontSize: 10, color: '#888', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 },
-  statValue: { fontSize: 18, color: '#F5F0E8', fontWeight: 700, fontFamily: 'Georgia, serif' },
+  statLabel: { fontSize: 11, color: '#888', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 },
+  statValue: { fontSize: 19, color: '#F5F0E8', fontWeight: 700, fontFamily: 'Georgia, serif' },
 
   headerPersonal: {
     background: '#1A1A1A',

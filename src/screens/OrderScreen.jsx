@@ -2056,8 +2056,15 @@ const S = {
     padding: '2px 6px',
   },
 
-  // Queue
-  queueList: { display: 'flex', flexDirection: 'column', gap: 14 },
+  // Queue — responsive grid: 1 column on phones, 2-3 columns on tablets.
+  // Phones land in a 360px minmax so the layout never tries to squeeze two
+  // tickets onto an iPhone width; iPad portrait fits 2 cols, landscape 3.
+  queueList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+    gap: 14,
+    alignItems: 'start',
+  },
   orderCard: {
     background: '#111',
     border: '1px solid #2A2A2A',
