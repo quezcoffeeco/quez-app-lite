@@ -1029,7 +1029,11 @@ export default function OrderScreen() {
                     {formatClock(order.createdAt)} → {formatClock(order.completedAt)} · {order.takenBy}
                   </div>
                 </div>
-                <div style={S.progressTag}>{itemCount} {lang === 'es' ? 'bebidas' : 'drinks'}</div>
+                <div style={S.progressTag}>
+                  {itemCount} {lang === 'es'
+                    ? (itemCount === 1 ? 'bebida' : 'bebidas')
+                    : (itemCount === 1 ? 'drink' : 'drinks')}
+                </div>
               </div>
 
               <div style={{ ...S.itemList, marginBottom: 10 }}>
@@ -1061,7 +1065,7 @@ export default function OrderScreen() {
                 <div style={S.orderNoteBanner}>📝 {order.orderNote}</div>
               )}
 
-              <button style={S.cancelBtn} onClick={() => handleRecallOrder(order)}>
+              <button style={S.reopenBtn} onClick={() => handleRecallOrder(order)}>
                 ↻ {lang === 'es' ? 'Reabrir Pedido' : 'Reopen Order'}
               </button>
             </div>
@@ -2428,6 +2432,23 @@ const S = {
     fontSize: 14,
     cursor: 'pointer',
     minHeight: 44,
+  },
+  // Reopen Order on the Recent tab — full-width muted ghost so it doesn't
+  // try to compete with anything for attention. Distinct from cancelBtn
+  // which is now a 44pt icon-only button on the Queue tab.
+  reopenBtn: {
+    width: '100%',
+    background: 'transparent',
+    border: '1px solid #555',
+    color: '#aaa',
+    borderRadius: 8,
+    padding: '0 14px',
+    minHeight: 44,
+    fontWeight: 600,
+    fontSize: 13,
+    letterSpacing: '0.04em',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
 
   // Empty state
