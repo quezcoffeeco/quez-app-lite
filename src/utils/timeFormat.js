@@ -20,20 +20,6 @@ export function fmtClock(input) {
   return `${h12}:${mm} ${period}`;
 }
 
-// Format a 24-hour "HH:MM" shift string as "h:mm am". If the string is malformed,
-// returns the input unchanged so we never blank out a schedule cell.
-export function fmtShiftTime(hhmm) {
-  if (!hhmm || typeof hhmm !== 'string') return '';
-  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm.trim());
-  if (!m) return hhmm;
-  const rawH = Number(m[1]);
-  const mm = m[2];
-  if (Number.isNaN(rawH)) return hhmm;
-  const h12 = ((rawH + 11) % 12) + 1;
-  const period = rawH < 12 ? 'am' : 'pm';
-  return `${h12}:${mm} ${period}`;
-}
-
 // Relative-time helper for "X minutes ago" / "yesterday at 6:14 pm" displays.
 export function fmtRelTime(input) {
   if (!input) return '';

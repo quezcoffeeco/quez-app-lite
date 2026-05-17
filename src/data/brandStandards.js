@@ -63,12 +63,38 @@ export const BRAND_STANDARDS = [
     en: 'Two suppliers for honey, always. We are never single-sourced.',
     es: 'Dos proveedores de miel, siempre. Nunca dependemos de uno solo.',
   },
+  // Seasonal reminders — month-gated so they appear only when relevant.
+  {
+    en: 'Summer heat: 100°F+ days = free iced upgrade promo is live. Lead with iced honey lemonade.',
+    es: 'Calor 100°F+: el ascenso gratuito a frío está activo. Recomienda limonada de miel.',
+    months: [6, 7, 8],
+  },
+  {
+    en: 'Iowa winter: cars idle at the drive-thru — keep hot drinks hot. Pre-warm cups in winter.',
+    es: 'Invierno: pre-calienta las tazas para conservar calor en la ventanilla.',
+    months: [12, 1, 2],
+  },
+  {
+    en: 'Fall: cinnamon + lavender honey drinks pull harder. Suggest the seasonal feature.',
+    es: 'Otoño: las bebidas con canela y lavanda venden más. Sugiere la temporada.',
+    months: [9, 10, 11],
+  },
+  {
+    en: 'Spring rotation: lavender honey fog is the seasonal pull. Mention it to first-timers.',
+    es: 'Primavera: lavanda con miel es el especial. Menciónalo a los nuevos.',
+    months: [3, 4, 5],
+  },
 ];
 
 // Pick today's standard (deterministic — everyone sees the same one all day).
+// Filters out seasonal entries whose `months` array doesn't include the current
+// month, so summer-specific reminders only surface in summer, etc.
 export function getTodayBrandStandard() {
   const d = new Date();
-  const seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
-  const idx = seed % BRAND_STANDARDS.length;
-  return BRAND_STANDARDS[idx];
+  const month = d.getMonth() + 1;
+  const eligible = BRAND_STANDARDS.filter((s) => !s.months || s.months.includes(month));
+  const pool = eligible.length > 0 ? eligible : BRAND_STANDARDS;
+  const seed = d.getFullYear() * 10000 + month * 100 + d.getDate();
+  const idx = seed % pool.length;
+  return pool[idx];
 }

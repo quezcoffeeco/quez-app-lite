@@ -44,7 +44,9 @@ export default function Inventory() {
 
   const resetDefaults = () => {
     if (!window.confirm(lang === 'es' ? '¿Restablecer la lista a valores predeterminados?' : 'Reset inventory to defaults?')) return;
-    saveInventory(DEFAULT_INVENTORY_ITEMS);
+    // Deep-copy so saving doesn't lock the saved state to the same reference
+    // as the module-level DEFAULT (would let future deductions mutate it).
+    saveInventory(DEFAULT_INVENTORY_ITEMS.map((i) => ({ ...i })));
     load();
   };
 
@@ -97,7 +99,13 @@ export default function Inventory() {
                   </div>
                   <div style={S.adjustRow}>
                     <button style={S.adjBtn} onClick={() => adjust(i.id, -1)}>−</button>
-                    <span style={{ ...S.onHand, color: low ? '#E05252' : '#D4AF37' }}>{i.onHand ?? 0}</span>
+                    <span style={{ ...S.onHand, color: low ? '#E05252' : '#D4AF37' }}>
+                      {(() => {
+                        const v = i.onHand ?? 0;
+                        // Drop trailing zeros: 2.0 → 2, but keep 2.5 / 1.3
+                        return Number.isInteger(v) ? v : Math.round(v * 10) / 10;
+                      })()}
+                    </span>
                     <button style={S.adjBtn} onClick={() => adjust(i.id, +1)}>+</button>
                   </div>
                   <button style={S.editBtn} onClick={() => setEditing({ ...i })}>✎</button>

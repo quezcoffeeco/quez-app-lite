@@ -16,7 +16,7 @@ import {
   clearPhase3Progress,
   getEmployees,
 } from '../utils/storage';
-import { sendQuezEmail } from '../utils/emailjs';
+import { sendQuezEmail, sendStatusMessage } from '../utils/emailjs';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -252,10 +252,13 @@ export default function TrainingPortal() {
 
   const handleQuizPassed = useCallback(async () => {
     if (!currentUser) return;
+    // Phase completion is recorded locally before the email goes out — the
+    // employee's progress is durable even if email delivery fails. The notice
+    // toast below reports the actual email outcome so the owner-notification
+    // is never silently lost.
     markPhase1Complete(currentUser.id);
     loadRecord();
-    // Email owner
-    await sendQuezEmail({
+    const emailResult = await sendQuezEmail({
       subject: `[Quez Training] Phase 1 Complete — ${currentUser.name}`,
       templateParams: {
         to_name: 'Owner',
@@ -263,6 +266,10 @@ export default function TrainingPortal() {
         message: `Phase 1 training complete.\n\nEmployee: ${currentUser.name}\nRole: ${currentUser.role}\nDate: ${new Date().toLocaleDateString()}\nResult: PASSED (quiz score ≥ 80%)\n\nNext step: Phase 2 — Supervised Hands-On Training.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa`,
       },
     });
+    if (!emailResult.ok) {
+      const status = sendStatusMessage(emailResult);
+      console.warn('[TrainingPortal] Phase 1 owner notice:', status.text);
+    }
   }, [currentUser, loadRecord]);
 
   const handleQuizFailed = useCallback(() => {
@@ -339,7 +346,7 @@ export default function TrainingPortal() {
       markPhase2Complete(currentUser.id, trainerName);
       clearPhase2Progress(currentUser.id);
       loadRecord();
-      await sendQuezEmail({
+      const r2 = await sendQuezEmail({
         subject: `[Quez Training] Phase 2 Complete — ${currentUser.name}`,
         templateParams: {
           to_name: 'Owner',
@@ -347,12 +354,13 @@ export default function TrainingPortal() {
           message: `Phase 2 training complete.\n\nEmployee: ${currentUser.name}\nRole: ${currentUser.role}\nDate: ${new Date().toLocaleDateString()}\nTrainer: ${trainerName}\nResult: All hands-on skills confirmed\n\nNext step: Phase 3 — Drink Proficiency.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa`,
         },
       });
+      if (!r2.ok) console.warn('[TrainingPortal] Phase 2 owner notice:', sendStatusMessage(r2).text);
 
     } else if (modal.type === 'phase3complete') {
       markPhase3Complete(currentUser.id, trainerName);
       clearPhase3Progress(currentUser.id);
       loadRecord();
-      await sendQuezEmail({
+      const r3 = await sendQuezEmail({
         subject: `[Quez Training] Phase 3 Complete — ${currentUser.name}`,
         templateParams: {
           to_name: 'Owner',
@@ -360,6 +368,7 @@ export default function TrainingPortal() {
           message: `Phase 3 training complete. Employee is ready for role upgrade.\n\nEmployee: ${currentUser.name}\nRole: ${currentUser.role}\nDate: ${new Date().toLocaleDateString()}\nTrainer: ${trainerName}\nResult: All 15 drinks demonstrated to standard\n\nAction Required: Owner or Manager must approve role upgrade in the Training Approval screen.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa`,
         },
       });
+      if (!r3.ok) console.warn('[TrainingPortal] Phase 3 owner notice:', sendStatusMessage(r3).text);
     }
   };
 

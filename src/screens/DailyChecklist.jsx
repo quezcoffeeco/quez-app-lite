@@ -5,7 +5,7 @@
 // ============================================================
 import React, { useState, useCallback } from 'react';
 import { OPENING_ITEMS, MID_SERVICE_ITEMS, CLOSING_ITEMS } from '../data/checklistItems';
-import { sendQuezEmail } from '../utils/emailjs';
+import { sendQuezEmail, sendStatusMessage } from '../utils/emailjs';
 import {
   saveDailyChecklistRecord,
   markDailyChecklistSubmitted,
@@ -106,7 +106,41 @@ const CorrectiveModal = ({ item, lang, onSave, onClose }) => {
 };
 
 // ── Range Toggle Item ─────────────────────────────────────
-const RangeItem = ({ item, lang, value, onOk, onFlag }) => {
+// ── Attribution Pill ──────────────────────────────────────
+// Small initials circle showing who last touched this item, with the full
+// name in the title tooltip. Visible cross-platform once the JSON state
+// syncs via the auto-backup email or shared device localStorage.
+function initialsOf(name) {
+  if (!name) return '?';
+  return name.split(/\s+/).map((p) => p[0]?.toUpperCase()).filter(Boolean).slice(0, 2).join('');
+}
+const AttribPill = ({ meta }) => {
+  if (!meta?.byName) return null;
+  return (
+    <span
+      title={`${meta.byName} · ${meta.at ? new Date(meta.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 22, height: 22,
+        borderRadius: '50%',
+        background: 'rgba(212,175,55,0.12)',
+        border: '1px solid rgba(212,175,55,0.4)',
+        color: '#D4AF37',
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: '0.04em',
+        flexShrink: 0,
+        marginRight: 8,
+      }}
+    >
+      {initialsOf(meta.byName)}
+    </span>
+  );
+};
+
+const RangeItem = ({ item, lang, value, meta, onOk, onFlag }) => {
   const label = lang === 'es' ? item.labelEs : item.label;
   const rangeLabel = lang === 'es' ? item.rangeLabelEs : item.rangeLabel;
   const note = lang === 'es' ? item.noteEs : item.note;
@@ -121,6 +155,7 @@ const RangeItem = ({ item, lang, value, onOk, onFlag }) => {
         {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
       <div style={styles.rangeToggle}>
+        <AttribPill meta={meta} />
         <button
           style={{ ...styles.rangeBtn, ...(isOk ? styles.rangeBtnOk : styles.rangeBtnOkInactive) }}
           onClick={onOk} type="button" aria-label="Within range"
@@ -135,7 +170,7 @@ const RangeItem = ({ item, lang, value, onOk, onFlag }) => {
 };
 
 // ── Check Toggle Item ─────────────────────────────────────
-const CheckItem = ({ item, lang, value, onChange }) => {
+const CheckItem = ({ item, lang, value, meta, onChange }) => {
   const label = lang === 'es' ? item.labelEs : item.label;
   const note = lang === 'es' ? item.noteEs : item.note;
   const isChecked = value === 'yes';
@@ -146,18 +181,21 @@ const CheckItem = ({ item, lang, value, onChange }) => {
         <span style={styles.itemLabel}>{label}</span>
         {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
-      <button
-        style={{ ...styles.checkBtn, ...(isChecked ? styles.checkBtnOn : styles.checkBtnOff) }}
-        onClick={() => onChange(isChecked ? '' : 'yes')} type="button"
-      >
-        {isChecked ? '✓' : '—'}
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <AttribPill meta={meta} />
+        <button
+          style={{ ...styles.checkBtn, ...(isChecked ? styles.checkBtnOn : styles.checkBtnOff) }}
+          onClick={() => onChange(isChecked ? '' : 'yes')} type="button"
+        >
+          {isChecked ? '✓' : '—'}
+        </button>
+      </div>
     </div>
   );
 };
 
 // ── Text Item ─────────────────────────────────────────────
-const TextItem = ({ item, lang, value, onChange }) => {
+const TextItem = ({ item, lang, value, meta, onChange }) => {
   const label = lang === 'es' ? item.labelEs : item.label;
   const note = lang === 'es' ? item.noteEs : item.note;
 
@@ -167,19 +205,22 @@ const TextItem = ({ item, lang, value, onChange }) => {
         <span style={styles.itemLabel}>{label}</span>
         {note ? <span style={styles.itemNote}>{note}</span> : null}
       </div>
-      <input
-        style={styles.textInput}
-        type="text"
-        placeholder={lang === 'es' ? 'Escribir...' : 'Enter...'}
-        value={value || ''}
-        onChange={e => onChange(e.target.value)}
-      />
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <AttribPill meta={meta} />
+        <input
+          style={styles.textInput}
+          type="text"
+          placeholder={lang === 'es' ? 'Escribir...' : 'Enter...'}
+          value={value || ''}
+          onChange={e => onChange(e.target.value)}
+        />
+      </div>
     </div>
   );
 };
 
 // ── Section Block ─────────────────────────────────────────
-const SectionBlock = ({ group, lang, values, onCheck, onRangeOk, onRangeFlag }) => {
+const SectionBlock = ({ group, lang, values, meta, onCheck, onRangeOk, onRangeFlag }) => {
   const label = lang === 'es' ? group.sectionLabelEs : group.sectionLabel;
   const note = lang === 'es' ? group.noteEs : group.note;
 
@@ -190,16 +231,17 @@ const SectionBlock = ({ group, lang, values, onCheck, onRangeOk, onRangeFlag }) 
         {note && <span style={styles.sectionNote}>{note}</span>}
       </div>
       {group.items.map(item => {
+        const m = meta?.[item.id];
         if (item.type === 'range') return (
-          <RangeItem key={item.id} item={item} lang={lang} value={values[item.id] || ''}
+          <RangeItem key={item.id} item={item} lang={lang} value={values[item.id] || ''} meta={m}
             onOk={() => onRangeOk(item)} onFlag={() => onRangeFlag(item)} />
         );
         if (item.type === 'check') return (
-          <CheckItem key={item.id} item={item} lang={lang} value={values[item.id] || ''}
+          <CheckItem key={item.id} item={item} lang={lang} value={values[item.id] || ''} meta={m}
             onChange={val => onCheck(item.id, val)} />
         );
         if (item.type === 'text') return (
-          <TextItem key={item.id} item={item} lang={lang} value={values[item.id] || ''}
+          <TextItem key={item.id} item={item} lang={lang} value={values[item.id] || ''} meta={m}
             onChange={val => onCheck(item.id, val)} />
         );
         return null;
@@ -266,6 +308,7 @@ const DailyChecklist = () => {
 
   const [activeTab, setActiveTab] = useState('opening');
   const [values, setValues] = useState(savedState.values || {});
+  const [meta, setMeta] = useState(savedState.meta || {});
   const [sectionStartTimes, setSectionStartTimes] = useState(savedState.sectionStartTimes || {});
   const [sectionSubmitted, setSectionSubmitted] = useState(
     savedState.sectionSubmitted || { opening: false, mid: false, closing: false }
@@ -278,13 +321,24 @@ const DailyChecklist = () => {
   const closingUnlocked = isSectionUnlocked('closing');
 
   // ── Persist state to localStorage on every change ────────
-  const persistState = useCallback((newValues, newStartTimes, newSubmitted) => {
+  const persistState = useCallback((newValues, newStartTimes, newSubmitted, newMeta) => {
     saveChecklistState({
       values: newValues,
+      meta: newMeta !== undefined ? newMeta : meta,
       sectionStartTimes: newStartTimes,
       sectionSubmitted: newSubmitted,
     });
-  }, []);
+  }, [meta]);
+
+  // Record attribution: who touched item id, when. Returns the next meta object.
+  const recordMeta = useCallback((id) => {
+    const next = {
+      ...meta,
+      [id]: { byName: user?.name || 'Unknown', at: new Date().toISOString() },
+    };
+    setMeta(next);
+    return next;
+  }, [meta, user]);
 
   // ── Auto-timestamp on first touch ─────────────────────────
   const recordStartTime = useCallback((section) => {
@@ -304,18 +358,20 @@ const DailyChecklist = () => {
   // ── Value handlers ────────────────────────────────────────
   const handleCheck = (section, id, val) => {
     recordStartTime(section);
+    const nextMeta = recordMeta(id);
     setValues(prev => {
       const next = { ...prev, [id]: val };
-      persistState(next, sectionStartTimes, sectionSubmitted);
+      persistState(next, sectionStartTimes, sectionSubmitted, nextMeta);
       return next;
     });
   };
 
   const handleRangeOk = (section, item) => {
     recordStartTime(section);
+    const nextMeta = recordMeta(item.id);
     setValues(prev => {
       const next = { ...prev, [item.id]: 'ok' };
-      persistState(next, sectionStartTimes, sectionSubmitted);
+      persistState(next, sectionStartTimes, sectionSubmitted, nextMeta);
       return next;
     });
   };
@@ -327,9 +383,10 @@ const DailyChecklist = () => {
 
   const handleCorrectiveSave = (text) => {
     const { item, section } = correctiveModal;
+    const nextMeta = recordMeta(item.id);
     setValues(prev => {
       const next = { ...prev, [item.id]: 'flag', [`${item.id}_corrective`]: text };
-      persistState(next, sectionStartTimes, sectionSubmitted);
+      persistState(next, sectionStartTimes, sectionSubmitted, nextMeta);
       return next;
     });
     saveFlaggedItem({
@@ -340,6 +397,8 @@ const DailyChecklist = () => {
       location: user?.location || 'Unknown',
       section,
     });
+    // Fire-and-react: surface the actual delivery state, don't claim "sent"
+    // before we hear back from the SDK.
     sendQuezEmail({
       subject: `⚠ Out of Range: ${item.label} — ${fmtDate()}`,
       templateParams: {
@@ -349,8 +408,14 @@ const DailyChecklist = () => {
         date: fmtDate(),
         message: `OUT OF RANGE: ${item.label}\nAcceptable range: ${item.rangeLabel}\nCorrective action: ${text}\nOperator: ${user?.name}\nLocation: ${user?.location}`,
       },
+    }).then((result) => {
+      const status = sendStatusMessage(result, lang);
+      const variant = result.ok ? 'warning' : (status.variant === 'error' ? 'error' : 'warning');
+      const prefix = result.ok
+        ? (lang === 'es' ? '⚠ Alerta enviada' : '⚠ Alert sent')
+        : (lang === 'es' ? '⚠ Alerta registrada — ' : '⚠ Alert recorded — ') + status.text;
+      showToast(prefix, variant);
     });
-    showToast(lang === 'es' ? '⚠ Alerta enviada al propietario' : '⚠ Alert sent to owner', 'warning');
     setCorrectiveModal(null);
   };
 
@@ -414,7 +479,7 @@ const DailyChecklist = () => {
       } catch {}
     }
 
-    await sendQuezEmail({
+    const emailResult = await sendQuezEmail({
       subject: `[Quez] ${sectionName} Checklist — ${user?.name || 'Unknown'} — ${fmtDate()}`,
       templateParams: {
         event_type: `${sectionName} Checklist`,
@@ -425,15 +490,27 @@ const DailyChecklist = () => {
       },
     });
 
+    // The in-app submission record is saved regardless of email delivery
+    // (the checklist is locally recorded above for closing; sectionSubmitted
+    // is a UI flag, not a delivery confirmation). But the toast should tell
+    // the truth about whether the OWNER actually received the email.
     const newSubmitted = { ...sectionSubmitted, [section]: true };
     setSectionSubmitted(newSubmitted);
     persistState(values, sectionStartTimes, newSubmitted);
     setSubmitting(null);
 
-    showToast(
-      lang === 'es' ? `✓ ${sectionName} enviado` : `✓ ${sectionName} checklist submitted`,
-      'success'
-    );
+    const status = sendStatusMessage(emailResult, lang);
+    if (emailResult.ok) {
+      showToast(
+        lang === 'es' ? `✓ ${sectionName} enviado` : `✓ ${sectionName} checklist submitted & emailed`,
+        'success'
+      );
+    } else {
+      showToast(
+        (lang === 'es' ? `${sectionName} guardado — ` : `${sectionName} saved — `) + status.text,
+        status.variant === 'error' ? 'error' : 'warning'
+      );
+    }
 
     if (section === 'opening') setActiveTab('mid');
     if (section === 'mid') setActiveTab('closing');
@@ -510,21 +587,21 @@ const DailyChecklist = () => {
         {activeTab === 'closing' && sectionSubmitted.closing && <div style={styles.submittedBanner}>✓ {lang === 'es' ? 'Cierre enviado — turno completado' : 'Closing submitted — shift complete'}</div>}
 
         {activeTab === 'opening' && openingUnlocked && !sectionSubmitted.opening && OPENING_ITEMS.map(group => (
-          <SectionBlock key={group.section} group={group} lang={lang} values={values}
+          <SectionBlock key={group.section} group={group} lang={lang} values={values} meta={meta}
             onCheck={(id, val) => handleCheck('opening', id, val)}
             onRangeOk={item => handleRangeOk('opening', item)}
             onRangeFlag={item => handleRangeFlag('opening', item)} />
         ))}
 
         {activeTab === 'mid' && !sectionSubmitted.mid && MID_SERVICE_ITEMS.map(group => (
-          <SectionBlock key={group.section} group={group} lang={lang} values={values}
+          <SectionBlock key={group.section} group={group} lang={lang} values={values} meta={meta}
             onCheck={(id, val) => handleCheck('mid', id, val)}
             onRangeOk={item => handleRangeOk('mid', item)}
             onRangeFlag={item => handleRangeFlag('mid', item)} />
         ))}
 
         {activeTab === 'closing' && closingUnlocked && !sectionSubmitted.closing && CLOSING_ITEMS.map(group => (
-          <SectionBlock key={group.section} group={group} lang={lang} values={values}
+          <SectionBlock key={group.section} group={group} lang={lang} values={values} meta={meta}
             onCheck={(id, val) => handleCheck('closing', id, val)}
             onRangeOk={item => handleRangeOk('closing', item)}
             onRangeFlag={item => handleRangeFlag('closing', item)} />

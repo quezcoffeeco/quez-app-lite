@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { getSettings, saveSettings, getEmployees, saveEmployees, getMenu, saveMenu, resetEmployeePin, getPeriodicDueConfig, savePeriodicDueConfig, getSeasonalDrink, setSeasonalDrink, getTodayLocation, setTodayLocation, getDailyGoal, setDailyGoal, getPlaylistUrl, setPlaylistUrl, downloadBackup, readBackupFile, restoreFromBundle, getStorageHealth, requestPersistentStorage, getAutoBackupConfig, setAutoBackupConfig, sendBackupEmail, getLastAutoBackupAt } from '../utils/storage';
+import { getSettings, saveSettings, getEmployees, saveEmployees, getMenu, saveMenu, resetEmployeePin, getPeriodicDueConfig, savePeriodicDueConfig, getSeasonalDrink, setSeasonalDrink, getTodayLocation, setTodayLocation, getLocationSchedule, setLocationSchedule, getTodayScheduledLocation, isLocationOverridden, getDailyGoal, setDailyGoal, getPlaylistUrl, setPlaylistUrl, downloadBackup, readBackupFile, restoreFromBundle, getStorageHealth, requestPersistentStorage, getAutoBackupConfig, setAutoBackupConfig, sendBackupEmail, getLastAutoBackupAt } from '../utils/storage';
 
 const ROLES = ['owner','manager','leadBarista','barista','trainee'];
 const ROLE_LABELS = { owner:'Owner', manager:'Manager', leadBarista:'Lead Barista', barista:'Barista', trainee:'Trainee' };
@@ -575,6 +575,7 @@ function DataBackupEditor({ viewerIsOwner = true }) {
 function TodayOpsEditor() {
   const [seasonal, setSeasonal] = useState(() => getSeasonalDrink());
   const [location, setLocation] = useState(() => getTodayLocation());
+  const [locationSchedule, setLocationScheduleState] = useState(() => getLocationSchedule());
   const [goal, setGoal] = useState(() => String(getDailyGoal() || ''));
   const [playlist, setPlaylist] = useState(() => getPlaylistUrl());
 
@@ -600,6 +601,66 @@ function TodayOpsEditor() {
           placeholder="e.g. Broadway Corridor — West End"
           maxLength={80}
         />
+        {isLocationOverridden() && (() => {
+          const scheduled = getTodayScheduledLocation();
+          return (
+            <div style={{
+              marginTop: 8,
+              padding: '9px 12px',
+              borderRadius: 8,
+              background: 'rgba(255,184,74,0.08)',
+              border: '1px solid rgba(255,184,74,0.4)',
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            }}>
+              <span style={{ fontSize: 12, color: '#FFB84A', fontWeight: 700 }}>
+                Scheduled today: <strong style={{ color: '#FFCF7E' }}>{scheduled}</strong>
+              </span>
+              <span style={{ fontSize: 11, color: '#888' }}>using override</span>
+              <button
+                onClick={() => { setLocation(scheduled); setTodayLocation(scheduled); }}
+                style={{
+                  marginLeft: 'auto',
+                  background: 'transparent',
+                  border: '1px solid #FFB84A',
+                  color: '#FFB84A',
+                  borderRadius: 6,
+                  padding: '5px 12px',
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: '0.04em',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Revert
+              </button>
+            </div>
+          );
+        })()}
+      </Field>
+      <Field label="Weekly Location Schedule" note="Pre-fills Today's Location automatically on app boot each morning. Manual edits still override.">
+        {['sun','mon','tue','wed','thu','fri','sat'].map((day) => (
+          <div key={day} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{
+              width: 44, fontSize: 11, fontWeight: 700, color: '#888',
+              letterSpacing: '0.06em', textTransform: 'uppercase',
+            }}>
+              {day}
+            </div>
+            <input
+              style={{ ...S.input, flex: 1 }}
+              value={locationSchedule[day] || ''}
+              onChange={(e) => {
+                const next = { ...locationSchedule, [day]: e.target.value };
+                setLocationScheduleState(next);
+                setLocationSchedule(next);
+              }}
+              placeholder="leave blank to skip auto-fill this day"
+              maxLength={80}
+            />
+          </div>
+        ))}
       </Field>
       <Field label="Daily Drink Goal" note="Drives the goal-progress bar + streak counter. Leave 0 to hide.">
         <input

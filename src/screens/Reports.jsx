@@ -1,13 +1,14 @@
 // ============================================================
 // QUEZ APP LITE — Reports.jsx
-// Owner/Manager analytics: best-sellers, labor hours, modifier popularity.
+// Owner/Manager analytics: best-sellers and modifier popularity.
+// Labor + payroll live in Square Shifts (separate system of record).
 // ============================================================
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { getDrinkReportRange, getLaborReportRange, getLaborCostRange, getTodayModifierTally, getSettings, getReportRecipients, logAudit, downloadCsv } from '../utils/storage';
+import { getDrinkReportRange, getTodayModifierTally, getSettings, getReportRecipients, logAudit, downloadCsv } from '../utils/storage';
 import { getModLabel } from '../data/drinkModifiers';
-import { sendQuezEmail } from '../utils/emailjs';
+import { sendQuezEmail, sendStatusMessage } from '../utils/emailjs';
 
 const RANGES = [
   { key: 'today',  label: { en: 'Today',      es: 'Hoy' },     days: 1 },
@@ -21,31 +22,30 @@ export default function Reports() {
 
   const [range, setRange] = useState('week');
   const days = useMemo(() => RANGES.find((r) => r.key === range)?.days || 7, [range]);
+  const [compareYoy, setCompareYoy] = useState(false);
 
   const [drinkReport, setDrinkReport] = useState({ total: 0, ranked: [] });
-  const [laborReport, setLaborReport] = useState({ totalHours: 0, byEmployee: [] });
-  const [laborCost, setLaborCost]     = useState({ totalCost: 0, byEmployee: [] });
+  const [drinkReportPrior, setDrinkReportPrior] = useState({ total: 0, ranked: [] });
   const [modTally, setModTally]       = useState({});
-  const [emailStatus, setEmailStatus] = useState(''); // '' | 'sending' | 'sent' | 'error'
+  const [emailStatus, setEmailStatus] = useState(''); // '' | 'sending' | 'sent' | 'queued' | 'error'
+  const [emailStatusText, setEmailStatusText] = useState('');
 
   useEffect(() => {
     setDrinkReport(getDrinkReportRange(days));
-    setLaborReport(getLaborReportRange(days));
-    setLaborCost(getLaborCostRange(days));
     setModTally(getTodayModifierTally());
+    // Pull the same window one year ago so the YoY toggle has data ready.
+    setDrinkReportPrior(getDrinkReportRange(days, 365));
   }, [days, range]);
 
   const buildEmail = () => {
     const label = RANGES.find((r) => r.key === range)?.label[lang] || range;
-    const subject = `[Quez Reports] ${label} — ${drinkReport.total} drinks · ${laborReport.totalHours.toFixed(1)}h labor`;
+    const subject = `[Quez Reports] ${label} — ${drinkReport.total} drinks`;
     const drinkLines = drinkReport.ranked.slice(0, 10).map((d, i) => `  ${i + 1}. ${d.name} — ${d.count}`);
-    const laborLines = laborReport.byEmployee.map((row) => `  ${row.name} — ${row.hours.toFixed(1)}h (${row.shifts} shifts)`);
     const modLines = Object.entries(modTally).sort((a, b) => b[1] - a[1]).map(([id, n]) => `  ${getModLabel(id, 'en')} — ${n}`);
     const body =
       `Quez Coffee Co. — Operational Report (${label})\n` +
       `Generated: ${new Date().toLocaleString()}\n\n` +
       `═══ DRINKS SERVED ═══\nTotal: ${drinkReport.total}\n\nTop sellers:\n${drinkLines.join('\n') || '  (no data)'}\n\n` +
-      `═══ LABOR HOURS ═══\nTotal: ${laborReport.totalHours.toFixed(1)}h across ${laborReport.byEmployee.length} employee${laborReport.byEmployee.length !== 1 ? 's' : ''}\n\nBy employee:\n${laborLines.join('\n') || '  (no completed shifts)'}\n\n` +
       `═══ CUSTOMIZATIONS (today) ═══\n${modLines.join('\n') || '  (none logged today)'}\n\n` +
       `QUEZ COFFEE CO. LLC · Council Bluffs, Iowa · Veteran Owned & Operated`;
     return { subject, body };
@@ -56,10 +56,12 @@ export default function Reports() {
     const settings = getSettings();
     const recipients = getReportRecipients();
     const { subject, body } = buildEmail();
+    let lastResult = { ok: true };
+    let anyFailed = false;
     try {
-      // Fan-out: send to every configured recipient
+      // Fan-out: send to every configured recipient. Track if any send failed.
       for (const to of recipients) {
-        await sendQuezEmail({
+        const result = await sendQuezEmail({
           subject,
           templateParams: {
             to_email: to,
@@ -69,14 +71,22 @@ export default function Reports() {
             timestamp: new Date().toISOString(),
           },
         });
+        lastResult = result;
+        if (!result.ok) anyFailed = true;
       }
-      setEmailStatus('sent');
-      logAudit('report_emailed', { range, recipients: recipients.length, by: currentUser?.name });
     } catch (e) {
-      console.warn('Report email failed:', e);
-      setEmailStatus('error');
+      console.warn('Report email exception:', e);
+      anyFailed = true;
+      lastResult = { ok: false, reason: 'send-error' };
     }
-    setTimeout(() => setEmailStatus(''), 3500);
+    // Only log audit when delivery was confirmed end-to-end. Queued ≠ delivered.
+    if (!anyFailed) {
+      logAudit('report_emailed', { range, recipients: recipients.length, by: currentUser?.name });
+    }
+    const status = sendStatusMessage(lastResult, lang);
+    setEmailStatus(status.variant);
+    setEmailStatusText(status.text);
+    setTimeout(() => { setEmailStatus(''); setEmailStatusText(''); }, 4500);
   };
 
   const exportDrinksCsv = () => {
@@ -88,18 +98,6 @@ export default function Reports() {
       mods:  Object.entries(d.mods ).map(([m,c]) => `${m}:${c}`).join(' '),
     }));
     downloadCsv(`drink-report-${range}-${new Date().toISOString().slice(0,10)}.csv`, rows);
-  };
-
-  const exportLaborCsv = () => {
-    const rows = laborCost.byEmployee.map((row) => ({
-      employee: row.name,
-      hours: row.hours,
-      wagePerHour: row.wage,
-      cost: row.cost,
-    }));
-    if (rows.length === 0) return;
-    rows.push({ employee: 'TOTAL', hours: laborReport.totalHours, wagePerHour: '', cost: laborCost.totalCost });
-    downloadCsv(`labor-report-${range}-${new Date().toISOString().slice(0,10)}.csv`, rows);
   };
 
   return (
@@ -131,17 +129,80 @@ export default function Reports() {
         >
           {emailStatus === 'sending'
             ? (lang === 'es' ? 'Enviando...' : 'Sending...')
-            : emailStatus === 'sent'
-            ? (lang === 'es' ? '✓ Reporte enviado' : '✓ Report sent')
-            : emailStatus === 'error'
-            ? (lang === 'es' ? '✗ Error — toca para reintentar' : '✗ Failed — tap to retry')
             : (lang === 'es' ? '✉ Enviar Reporte por Correo' : '✉ Email This Report')}
+        </button>
+        {emailStatus && emailStatus !== 'sending' && emailStatusText && (
+          <div style={{
+            marginTop: 8,
+            padding: '8px 12px',
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            textAlign: 'center',
+            background:
+              emailStatus === 'sent' ? 'rgba(76,175,80,0.10)' :
+              emailStatus === 'queued' ? 'rgba(255,184,74,0.10)' :
+              'rgba(224,82,82,0.10)',
+            border: '1px solid ' + (
+              emailStatus === 'sent' ? 'rgba(76,175,80,0.45)' :
+              emailStatus === 'queued' ? 'rgba(255,184,74,0.45)' :
+              'rgba(224,82,82,0.45)'
+            ),
+            color:
+              emailStatus === 'sent' ? '#4CAF50' :
+              emailStatus === 'queued' ? '#FFB84A' :
+              '#E05252',
+          }}>
+            {emailStatusText}
+          </div>
+        )}
+
+        {/* YoY compare toggle — only renders something useful once you have
+            data from one year ago, but the toggle itself is always available. */}
+        <button
+          onClick={() => setCompareYoy(!compareYoy)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: compareYoy ? 'rgba(212,175,55,0.12)' : 'transparent',
+            border: '1px solid ' + (compareYoy ? '#D4AF37' : '#333'),
+            color: compareYoy ? '#D4AF37' : '#888',
+            borderRadius: 7, padding: '6px 11px',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+            cursor: 'pointer', fontFamily: 'inherit', marginBottom: 12,
+          }}
+        >
+          {compareYoy ? '✓' : '○'} {lang === 'es' ? 'Comparar con el año pasado' : 'Compare to last year'}
         </button>
 
         {/* Drink summary */}
         <div style={S.card}>
           <div style={S.cardLabel}>{lang === 'es' ? 'Bebidas Servidas' : 'Drinks Served'}</div>
-          <div style={S.bigStat}>{drinkReport.total}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+            <div style={S.bigStat}>{drinkReport.total}</div>
+            {compareYoy && (() => {
+              const prior = drinkReportPrior.total;
+              if (prior === 0) {
+                return (
+                  <div style={{ fontSize: 11, color: '#666', fontStyle: 'italic' }}>
+                    {lang === 'es' ? 'sin datos del año pasado' : 'no data from last year'}
+                  </div>
+                );
+              }
+              const deltaPct = Math.round(((drinkReport.total - prior) / prior) * 100);
+              const isUp = deltaPct >= 0;
+              return (
+                <div style={{
+                  fontSize: 13, fontWeight: 700,
+                  color: isUp ? '#4CAF50' : '#E05252',
+                }}>
+                  {isUp ? '↑' : '↓'} {Math.abs(deltaPct)}%
+                  <span style={{ marginLeft: 6, color: '#888', fontWeight: 400 }}>
+                    {lang === 'es' ? `(vs ${prior} el año pasado)` : `(vs ${prior} last year)`}
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
           <div style={S.bigStatSub}>
             {lang === 'es' ? `en los últimos ${days} día${days !== 1 ? 's' : ''}` : `over last ${days} day${days !== 1 ? 's' : ''}`}
           </div>
@@ -169,55 +230,6 @@ export default function Reports() {
                 })}
               </div>
               <button style={S.csvBtn} onClick={exportDrinksCsv}>
-                ⬇ {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Labor hours */}
-        <div style={S.card}>
-          <div style={S.cardLabel}>{lang === 'es' ? 'Horas Laborales' : 'Labor Hours'}</div>
-          <div style={S.bigStat}>{laborReport.totalHours.toFixed(1)}h</div>
-          <div style={S.bigStatSub}>
-            {lang === 'es' ? `de ${laborReport.byEmployee.length} empleado${laborReport.byEmployee.length !== 1 ? 's' : ''}` : `from ${laborReport.byEmployee.length} employee${laborReport.byEmployee.length !== 1 ? 's' : ''}`}
-          </div>
-
-          {laborReport.byEmployee.length === 0 ? (
-            <div style={S.emptyText}>{lang === 'es' ? 'Sin registros completos.' : 'No completed shifts.'}</div>
-          ) : (
-            <>
-              <div style={S.list}>
-                <div style={S.listSubLabel}>{lang === 'es' ? 'Por empleado' : 'By employee'}</div>
-                {laborReport.byEmployee.map((row) => {
-                  const pct = laborReport.totalHours > 0 ? (row.hours / laborReport.totalHours) * 100 : 0;
-                  // Find matching cost row
-                  const costRow = laborCost.byEmployee.find((c) => c.name === row.name);
-                  return (
-                    <div key={row.name} style={S.rankRow}>
-                      <span style={S.rankNum}>·</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={S.rankName}>
-                          {row.name} <span style={S.shiftPill}>{row.shifts} {lang === 'es' ? 'turnos' : 'shifts'}</span>
-                          {costRow && costRow.cost > 0 && (
-                            <span style={{ ...S.shiftPill, color: '#D4AF37', marginLeft: 4 }}>${costRow.cost.toFixed(2)}</span>
-                          )}
-                        </div>
-                        <div style={S.rankBar}>
-                          <div style={{ ...S.rankBarFill, background: '#7BB3F0', width: `${pct}%` }} />
-                        </div>
-                      </div>
-                      <span style={S.rankCount}>{row.hours.toFixed(1)}h</span>
-                    </div>
-                  );
-                })}
-              </div>
-              {laborCost.totalCost > 0 && (
-                <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(212,175,55,0.06)', borderRadius: 6, fontSize: 12, color: '#D4AF37', fontWeight: 700, textAlign: 'right' }}>
-                  {lang === 'es' ? 'Costo total laboral:' : 'Total labor cost:'} ${laborCost.totalCost.toFixed(2)}
-                </div>
-              )}
-              <button style={S.csvBtn} onClick={exportLaborCsv}>
                 ⬇ {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
               </button>
             </>

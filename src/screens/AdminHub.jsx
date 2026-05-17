@@ -10,7 +10,7 @@ import {
   getTraineesReadyForApproval, isWeeklyChecklistDue, isWeeklySubmittedThisWeek,
   isMonthlyChecklistDue, isMonthlySubmittedThisMonth, isQuarterlyChecklistDue,
   isQuarterlySubmittedThisQuarter, isAnnualChecklistDue, isAnnualSubmittedThisYear,
-  getActiveTraineesSummary, getPendingSwapCount, getLowStockItems,
+  getActiveTraineesSummary, getLowStockItems,
   getMyAdminLayout, saveMyAdminLayout, moveItem,
 } from '../utils/storage';
 
@@ -21,7 +21,6 @@ export default function AdminHub() {
 
   const pendingCount  = getTraineesReadyForApproval().length;
   const traineeCount  = getActiveTraineesSummary().length;
-  const pendingSwaps  = getPendingSwapCount();
   const lowStockCount = getLowStockItems().length;
   const periodicDue =
     (isWeeklyChecklistDue() && !isWeeklySubmittedThisWeek()) ||
@@ -33,12 +32,6 @@ export default function AdminHub() {
   const TILE_DEFS = {
     reports:           { icon: '📊', title: { en: 'Reports', es: 'Reportes' },
                          desc: { en: 'Drinks · Labor · Customizations · CSV export', es: 'Bebidas · Trabajo · Personalizaciones · CSV' }, badge: 0 },
-    schedule:          { icon: '📆', title: { en: 'Schedule', es: 'Horario' },
-                         desc: { en: 'Build and view weekly shifts', es: 'Construir y ver turnos semanales' }, badge: 0 },
-    timesheet:         { icon: '⏰', title: { en: 'Timesheet', es: 'Hoja de Tiempo' },
-                         desc: { en: 'Edit time-clock punches · fix forgotten clock-outs', es: 'Editar registros · arreglar salidas olvidadas' }, badge: 0 },
-    shiftSwaps:        { icon: '🔄', title: { en: 'Shift Swaps', es: 'Cambios de Turno' },
-                         desc: { en: 'Approve / deny shift swap requests', es: 'Aprobar / negar solicitudes de cambio' }, badge: pendingSwaps },
     inventory:         { icon: '📦', title: { en: 'Inventory', es: 'Inventario' },
                          desc: { en: 'Par levels · low-stock alerts', es: 'Niveles par · alertas de stock bajo' }, badge: lowStockCount },
     wasteLog:          { icon: '🗑', title: { en: 'Waste & Remake Log', es: 'Registro de Desperdicio' },
@@ -61,7 +54,7 @@ export default function AdminHub() {
   };
 
   const DEFAULT_ORDER = [
-    'reports', 'schedule', 'timesheet', 'shiftSwaps', 'inventory', 'wasteLog',
+    'reports', 'inventory', 'wasteLog',
     'trainingApproval', 'trainees', 'periodicChecklists', 'settings',
     ...(isOwner ? ['auditLog'] : []),
   ];

@@ -9,7 +9,6 @@ const SESSION_KEY         = 'quez_session';
 const EMPLOYEES_KEY       = 'quez_employees';
 const MENU_KEY            = 'quez_menu_items';
 const LOCKOUT_KEY         = 'quez_pin_lockout';
-const PUNCHES_KEY         = 'quez_time_punches';
 const DAILY_REC_KEY       = 'quez_daily_checklist_records';
 const DAILY_SUB_KEY       = 'quez_daily_submitted';
 const CHECKLIST_STATE_KEY = 'quez_checklist_state';
@@ -184,10 +183,7 @@ export const saveMenu = (menu) => storageSet(MENU_KEY, menu);
 // ── Session ───────────────────────────────────────────────
 export const getSession = () => storageGet(SESSION_KEY);
 export const setSession = (userData) => {
-  storageSet(SESSION_KEY, {
-    ...userData,
-    clockInTime: userData.clockInTime || new Date().toISOString(),
-  });
+  storageSet(SESSION_KEY, { ...userData });
 };
 export const clearSession = () => storageRemove(SESSION_KEY);
 export const saveCurrentUser = (u) => storageSet(SESSION_KEY, u);
@@ -210,105 +206,6 @@ export const clearPinLockout = (employeeId) => {
   storageSet(LOCKOUT_KEY, all);
 };
  
-// ── Time Punches ──────────────────────────────────────────
-export const getPunches = () => storageGet(PUNCHES_KEY) || [];
-export const savePunches = (punches) => storageSet(PUNCHES_KEY, punches);
- 
-export const recordClockIn = ({ employeeId, name, role, location, clockInTime }) => {
-  const punches = getPunches();
-  punches.push({
-    employeeId,
-    name,
-    role,
-    location,
-    clockInTime: clockInTime || new Date().toISOString(),
-    clockOutTime: null,
-    date: new Date().toLocaleDateString('en-US'),
-    autoClose: false,
-    sent: false,
-  });
-  savePunches(punches);
-};
- 
-export const recordClockOut = ({ employeeId, name, role, location, clockInTime, clockOutTime }) => {
-  const punches = getPunches();
-  let found = false;
-  for (let i = punches.length - 1; i >= 0; i--) {
-    if (punches[i].employeeId === employeeId && !punches[i].clockOutTime) {
-      punches[i].clockOutTime = clockOutTime || new Date().toISOString();
-      found = true;
-      break;
-    }
-  }
-  if (!found) {
-    punches.push({
-      employeeId, name, role, location,
-      clockInTime: clockInTime || new Date().toISOString(),
-      clockOutTime: clockOutTime || new Date().toISOString(),
-      date: new Date().toLocaleDateString('en-US'),
-      autoClose: false,
-      sent: false,
-    });
-  }
-  savePunches(punches);
-};
- 
-export const addClockInRecord = ({ employeeId, name, role, location, clockInTime }) =>
-  recordClockIn({ employeeId, name, role, location, clockInTime });
- 
-export const saveClockInRecord = ({ name, role, location }) =>
-  recordClockIn({ name, role, location });
- 
-export const saveClockOutRecord = (index, clockOutTime) => {
-  const punches = getPunches();
-  if (punches[index]) punches[index].clockOutTime = clockOutTime;
-  savePunches(punches);
-};
- 
-export const loadTodayClockRecords = () => {
-  const today = new Date().toLocaleDateString('en-US');
-  return getPunches().filter(p => p.date === today);
-};
- 
-export const hasOpenPunchToday = (employeeId) => {
-  const today = new Date().toLocaleDateString('en-US');
-  return getPunches().some(
-    p => p.employeeId === employeeId && p.date === today && !p.clockOutTime
-  );
-};
- 
-export const hasPunchToday = (employeeId) => {
-  const today = new Date().toLocaleDateString('en-US');
-  return getPunches().some(p => p.employeeId === employeeId && p.date === today);
-};
- 
-export const getUnsentPunches = () => getPunches().filter(p => !p.sent);
- 
-export const markPunchesSent = () => {
-  const punches = getPunches();
-  const updated = punches.map(p => {
-    if (!p.sent && p.clockOutTime) return { ...p, sent: true };
-    return p;
-  });
-  savePunches(updated);
-};
- 
-export const autoCloseOrphanedPunches = () => {
-  const today = new Date().toLocaleDateString('en-US');
-  const punches = getPunches();
-  let changed = false;
-  const updated = punches.map(p => {
-    if (!p.clockOutTime && p.date !== today) {
-      const closeTime = new Date(p.date);
-      closeTime.setHours(23, 59, 0, 0);
-      changed = true;
-      return { ...p, clockOutTime: closeTime.toISOString(), autoClose: true };
-    }
-    return p;
-  });
-  if (changed) savePunches(updated);
-};
- 
 // ── Checklist State ───────────────────────────────────────
 const checklistStateKey = () => {
   const d = new Date();
@@ -318,11 +215,15 @@ const checklistStateKey = () => {
 export const saveChecklistState = (state) => storageSet(checklistStateKey(), state);
  
 export const loadChecklistState = () => {
-  return storageGet(checklistStateKey()) || {
+  const state = storageGet(checklistStateKey()) || {
     values: {},
     sectionStartTimes: {},
     sectionSubmitted: { opening: false, mid: false, closing: false },
   };
+  // Per-item attribution: who last touched each item + when. Older state
+  // documents won't have this; default to empty so legacy days don't crash.
+  if (!state.meta) state.meta = {};
+  return state;
 };
  
 // ── Daily checklist submission tracking ───────────────────
@@ -395,29 +296,6 @@ export const checkAndSendIncompleteAlert = () => {
       },
     });
   });
-};
- 
-// ── Time clock report ─────────────────────────────────────
-export const buildTimeClockReport = () => {
-  const unsent = getUnsentPunches().filter(p => p.clockOutTime);
-  if (!unsent.length) return null;
-  const lines = unsent.map(p => {
-    const inTime = new Date(p.clockInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const outTime = new Date(p.clockOutTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const ms = new Date(p.clockOutTime) - new Date(p.clockInTime);
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    const duration = h > 0 ? `${h}h ${m}m` : `${m}m`;
-    const flag = p.autoClose ? ' ⚠ AUTO-CLOSED (no clock-out recorded)' : '';
-    return `  ${p.date} | ${p.name} (${p.role}) | In: ${inTime} | Out: ${outTime} | ${duration}${flag}`;
-  });
-  const firstDate = unsent[0]?.date || '';
-  const lastDate = unsent[unsent.length - 1]?.date || '';
-  return {
-    subject: `[Quez] Time Clock Report — ${firstDate} to ${lastDate}`,
-    body: `TIME CLOCK REPORT\n═══════════════════════════════\nPeriod: ${firstDate} → ${lastDate}\nTotal Punches: ${unsent.length}\n\n${lines.join('\n')}\n═══════════════════════════════\nQuez Coffee Co. — Auto-Generated`,
-    count: unsent.length,
-  };
 };
  
 // ── Flagged items ─────────────────────────────────────────
@@ -809,10 +687,138 @@ export function updateOrderItems(orderId, items) {
   saveActiveOrders(orders);
 }
 
-// Cancel an order without recording any drinks served
-export function cancelOrder(orderId) {
-  const orders = getActiveOrders().filter((o) => o.id !== orderId);
+// Inline customer-name update — applied to the order's orderNote field so the
+// rest of the queue card stays untouched. Used by the tap-header inline editor.
+export function updateOrderNote(orderId, note) {
+  const orders = getActiveOrders();
+  const idx = orders.findIndex((o) => o.id === orderId);
+  if (idx === -1) return;
+  orders[idx] = { ...orders[idx], orderNote: (note || '').trim() };
   saveActiveOrders(orders);
+}
+
+// Cancel an order without recording any drinks served. Pushes a snapshot onto
+// today's quez_cancelled_orders_YYYYMMDD bucket so owners can investigate
+// "customer says they ordered 10 min ago" disputes after the undo window.
+// Accepts an optional reason ({ category, note }) for audit + report context.
+export function cancelOrder(orderId, reason = null) {
+  const orders = getActiveOrders();
+  const order = orders.find((o) => o.id === orderId);
+  saveActiveOrders(orders.filter((o) => o.id !== orderId));
+  if (order && !order.practice) {
+    const histKey = `quez_cancelled_orders_${todayKey()}`;
+    const histRaw = localStorage.getItem(histKey);
+    const hist = histRaw ? (() => { try { return JSON.parse(histRaw); } catch { return []; } })() : [];
+    hist.unshift({
+      ...order,
+      cancelledAt: new Date().toISOString(),
+      cancelReason: reason || null,
+    });
+    if (hist.length > 50) hist.length = 50;
+    localStorage.setItem(histKey, JSON.stringify(hist));
+  }
+}
+
+// Cancelled-order history viewer. Used by the OrderScreen Cancelled tab.
+export function getRecentCancelledOrders(daysBack = 1) {
+  const out = [];
+  for (let i = 0; i < daysBack; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const raw = localStorage.getItem(`quez_cancelled_orders_${dateKeyCompact(d)}`);
+    if (!raw) continue;
+    try { out.push(...JSON.parse(raw)); } catch {}
+  }
+  return out;
+}
+
+// Build-time analytics — reads completed-order buckets, returns average +
+// median build time (in seconds) over the requested window, plus a per-prep
+// breakdown (espresso/drip/iced/blended). Hot is split because espresso pulls
+// have different bottlenecks than drip pours — owner needs to see them apart.
+export function getBuildTimeStats(daysBack = 1) {
+  // Cache espresso flag per drink id — avoids repeated find() inside the loop.
+  let recipeMap = null;
+  const isEspressoDrink = (drinkId) => {
+    if (!recipeMap) {
+      try {
+        // eslint-disable-next-line global-require
+        const { drinkRecipes } = require('../data/drinkRecipes');
+        recipeMap = {};
+        (drinkRecipes || []).forEach((d) => {
+          recipeMap[d.id] = !!(d.tags && d.tags.usesEspresso);
+        });
+      } catch { recipeMap = {}; }
+    }
+    return !!recipeMap[drinkId];
+  };
+
+  const ms = [];
+  const byPrep = { espresso: [], drip: [], iced: [], blended: [] };
+  for (let i = 0; i < daysBack; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const raw = localStorage.getItem(`quez_completed_orders_${dateKeyCompact(d)}`);
+    if (!raw) continue;
+    try {
+      const list = JSON.parse(raw);
+      list.forEach((o) => {
+        if (o.practice) return;
+        if (!o.createdAt || !o.completedAt) return;
+        const delta = new Date(o.completedAt) - new Date(o.createdAt);
+        if (delta <= 0 || delta >= 30 * 60 * 1000) return; // skip outliers
+        ms.push(delta);
+        // Bucket by the dominant prep — for "hot" items, further split
+        // espresso vs drip based on the recipe tag.
+        const counts = { espresso: 0, drip: 0, iced: 0, blended: 0 };
+        (o.items || []).forEach((it) => {
+          if (it.prepType === 'iced') counts.iced += 1;
+          else if (it.prepType === 'blended') counts.blended += 1;
+          else if (it.prepType === 'hot') {
+            if (isEspressoDrink(it.drinkId)) counts.espresso += 1;
+            else counts.drip += 1;
+          }
+        });
+        // Pick the bucket with the highest count; ties favor espresso → drip → iced → blended.
+        let prep = 'drip';
+        let max = 0;
+        ['espresso', 'drip', 'iced', 'blended'].forEach((k) => {
+          if (counts[k] > max) { max = counts[k]; prep = k; }
+        });
+        byPrep[prep].push(delta);
+      });
+    } catch {}
+  }
+  const summarize = (arr) => {
+    if (arr.length === 0) return { count: 0, avgSec: 0 };
+    const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+    return { count: arr.length, avgSec: Math.round(avg / 1000) };
+  };
+  if (ms.length === 0) {
+    return {
+      count: 0, avgSec: 0, medianSec: 0,
+      byPrep: {
+        espresso: { count: 0, avgSec: 0 },
+        drip:     { count: 0, avgSec: 0 },
+        iced:     { count: 0, avgSec: 0 },
+        blended:  { count: 0, avgSec: 0 },
+      },
+    };
+  }
+  const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
+  const sorted = [...ms].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  return {
+    count: ms.length,
+    avgSec: Math.round(avg / 1000),
+    medianSec: Math.round(median / 1000),
+    byPrep: {
+      espresso: summarize(byPrep.espresso),
+      drip:     summarize(byPrep.drip),
+      iced:     summarize(byPrep.iced),
+      blended:  summarize(byPrep.blended),
+    },
+  };
 }
 
 // Complete an order: removes from active queue, writes each item to today's drink log,
@@ -825,24 +831,31 @@ export function completeOrder(orderId) {
   saveActiveOrders(remaining);
 
   const completedAt = new Date().toISOString();
-  const key = `quez_drink_log_${todayKey()}`;
-  const raw = localStorage.getItem(key);
-  const log = raw ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : [];
-  order.items.forEach((it) => {
-    log.push({
-      drinkId: it.drinkId,
-      drinkName: it.drinkName,
-      size: it.size,
-      prepType: it.prepType,
-      modifiers: it.modifiers || [],
-      note: it.note || '',
-      orderId: order.id,
-      orderNumber: order.number,
-      takenBy: order.takenBy,
-      completedAt,
+  // Practice orders never touch the drink log OR the inventory — keeps reports
+  // and stock counts clean during training.
+  if (!order.practice) {
+    const key = `quez_drink_log_${todayKey()}`;
+    const raw = localStorage.getItem(key);
+    const log = raw ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : [];
+    order.items.forEach((it) => {
+      log.push({
+        drinkId: it.drinkId,
+        drinkName: it.drinkName,
+        size: it.size,
+        prepType: it.prepType,
+        modifiers: it.modifiers || [],
+        note: it.note || '',
+        orderId: order.id,
+        orderNumber: order.number,
+        takenBy: order.takenBy,
+        completedAt,
+      });
     });
-  });
-  localStorage.setItem(key, JSON.stringify(log));
+    localStorage.setItem(key, JSON.stringify(log));
+
+    // Deduct ingredients from inventory — per-recipe, per-size, modifier-aware.
+    try { deductInventoryForOrder(order); } catch (e) { console.warn('Inventory deduction failed:', e); }
+  }
 
   // Push to completed-order history for recall
   const histKey = `quez_completed_orders_${todayKey()}`;
@@ -919,54 +932,6 @@ export function buildDailyDrinkReport() {
     subject: `[Quez Daily Drink Report] ${date} — ${total} drinks`,
     body,
   };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SESSION 12 — SCHEDULING
-// Weekly schedule by date key (YYYY-MM-DD). One employee can have one shift / day.
-// shape: { 'YYYY-MM-DD': [ { id, employeeId, employeeName, start: 'HH:MM', end: 'HH:MM', note } ] }
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SCHEDULE_KEY = 'quez_schedule';
-
-export function getSchedule() {
-  const raw = localStorage.getItem(SCHEDULE_KEY);
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
-export function saveSchedule(schedule) {
-  localStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule));
-}
-
-export function getShiftsForDate(dateStr) {
-  const schedule = getSchedule();
-  return schedule[dateStr] || [];
-}
-
-export function addShift(dateStr, shift) {
-  const schedule = getSchedule();
-  const day = schedule[dateStr] || [];
-  day.push({ id: 'shf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), ...shift });
-  schedule[dateStr] = day;
-  saveSchedule(schedule);
-}
-
-export function updateShift(dateStr, shiftId, patch) {
-  const schedule = getSchedule();
-  const day = schedule[dateStr] || [];
-  const idx = day.findIndex((s) => s.id === shiftId);
-  if (idx === -1) return;
-  day[idx] = { ...day[idx], ...patch };
-  schedule[dateStr] = day;
-  saveSchedule(schedule);
-}
-
-export function removeShift(dateStr, shiftId) {
-  const schedule = getSchedule();
-  const day = (schedule[dateStr] || []).filter((s) => s.id !== shiftId);
-  if (day.length === 0) delete schedule[dateStr]; else schedule[dateStr] = day;
-  saveSchedule(schedule);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1195,9 +1160,15 @@ export async function sendBackupEmail(reason = 'manual', byName = 'system') {
       `QUEZ COFFEE CO. LLC · Council Bluffs, Iowa`;
   }
 
+  // Track per-recipient delivery — only mark the backup successful if EVERY
+  // recipient was actually delivered to. If any send is queued (offline / no
+  // credentials / send-error), the backup is "queued" not "done", so the next
+  // boot will try again instead of skipping it.
+  let lastFailReason = null;
+  let anyFailed = false;
   try {
     for (const to of recipients) {
-      await sendQuezEmail({
+      const result = await sendQuezEmail({
         subject,
         templateParams: {
           to_email: to,
@@ -1208,21 +1179,38 @@ export async function sendBackupEmail(reason = 'manual', byName = 'system') {
           timestamp: date,
         },
       });
+      if (!result.ok) {
+        anyFailed = true;
+        lastFailReason = result.reason;
+      }
     }
-    localStorage.setItem(LAST_AUTO_BACKUP_KEY, date);
-    setAutoBackupStatus({
-      state: tooBig ? 'too_big' : 'ok',
-      at: date,
-      sizeBytes: bundleJson.length,
-      limitBytes: MAX_AUTOBACKUP_BODY_BYTES,
-    });
-    logAudit('backup_emailed', { reason, recipients: recipients.length, sizeBytes: bundleJson.length, byName });
-    return { sent: true, tooBig, recipients: recipients.length };
   } catch (err) {
-    console.warn('Auto-backup email failed:', err);
+    console.warn('Auto-backup email exception:', err);
     setAutoBackupStatus({ state: 'failed', at: new Date().toISOString(), sizeBytes: bundleJson.length, error: err?.message || 'send failed' });
     return { sent: false, error: err.message || 'send failed' };
   }
+
+  if (anyFailed) {
+    setAutoBackupStatus({
+      state: 'queued',
+      at: date,
+      sizeBytes: bundleJson.length,
+      limitBytes: MAX_AUTOBACKUP_BODY_BYTES,
+      reason: lastFailReason,
+    });
+    return { sent: false, queued: true, reason: lastFailReason, recipients: recipients.length };
+  }
+
+  // Genuine success — mark the day done so we don't re-send.
+  localStorage.setItem(LAST_AUTO_BACKUP_KEY, date);
+  setAutoBackupStatus({
+    state: tooBig ? 'too_big' : 'ok',
+    at: date,
+    sizeBytes: bundleJson.length,
+    limitBytes: MAX_AUTOBACKUP_BODY_BYTES,
+  });
+  logAudit('backup_emailed', { reason, recipients: recipients.length, sizeBytes: bundleJson.length, byName });
+  return { sent: true, tooBig, recipients: recipients.length };
 }
 
 // Fire the auto-backup if enabled and the calendar day has rolled over since last backup.
@@ -1340,38 +1328,6 @@ export function getBirthdaysThisWeek() {
   return results.sort((a, b) => a.date - b.date);
 }
 
-// ── Pay period estimate (hours × wage in current week, since last Sunday) ──
-export function getMyPayPeriodStats(employeeId) {
-  const employees = getEmployees();
-  const emp = employees.find((e) => e.id === employeeId);
-  const wage = emp?.wagePerHour || 0;
-  const punches = storageGet(PUNCHES_KEY) || [];
-  const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - start.getDay());
-  let hours = 0;
-  let openShiftStart = null;
-  punches.forEach((p) => {
-    if (p.employeeId !== employeeId) return;
-    if (!p.clockInTime) return;
-    const inAt = new Date(p.clockInTime);
-    if (inAt < start) return;
-    if (p.clockOutTime) {
-      const ms = new Date(p.clockOutTime) - inAt;
-      if (ms > 0) hours += ms / 3600000;
-    } else {
-      // Open shift — count up to now
-      openShiftStart = inAt;
-      const ms = Date.now() - inAt.getTime();
-      if (ms > 0) hours += ms / 3600000;
-    }
-  });
-  return {
-    hours: Math.round(hours * 10) / 10,
-    wage,
-    estimated: Math.round(hours * wage * 100) / 100,
-    onShift: !!openShiftStart,
-  };
-}
-
 // ── Achievement badges (computed from existing data) ──
 export function getMyAchievements(employeeId, name) {
   if (!employeeId || !name) return [];
@@ -1391,8 +1347,9 @@ export function getMyAchievements(employeeId, name) {
   else if (lifetimeDrinks >= 100)  achievements.push({ id: 'd100',  icon: '☕', label: '100 drinks served' });
   else if (lifetimeDrinks >= 10)   achievements.push({ id: 'd10',   icon: '✨', label: 'First 10 drinks' });
 
-  // Streak (already computed elsewhere)
-  const streak = getCurrentStreak();
+  // Streak (drill-pause aware — pass employeeId so missed drill weekends
+  // don't reset the streak the same way they don't on the goal card)
+  const streak = getCurrentStreak(employeeId);
   if (streak >= 30)      achievements.push({ id: 's30', icon: '🔥', label: '30-day streak' });
   else if (streak >= 7)  achievements.push({ id: 's7',  icon: '🔥', label: '7-day streak' });
   else if (streak >= 3)  achievements.push({ id: 's3',  icon: '🔥', label: '3-day streak' });
@@ -1481,9 +1438,58 @@ export function getTodayLocation() {
   const s = getSettings();
   return s.todayLocation || '';
 }
+export function getTodayLocationUpdatedAt() {
+  const s = getSettings();
+  return s.todayLocationUpdatedAt || null;
+}
 export function setTodayLocation(text) {
   const s = getSettings();
-  saveSettings({ ...s, todayLocation: (text || '').trim() });
+  saveSettings({ ...s, todayLocation: (text || '').trim(), todayLocationUpdatedAt: new Date().toISOString() });
+}
+
+// Scheduled location — per-day-of-week pre-fills so the owner doesn't have
+// to manually update at every shift open. Shape: { sun, mon, tue, wed, thu, fri, sat }
+// Each value is a location string (or empty for "not scheduled this day").
+const LOCATION_SCHEDULE_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+export function getLocationSchedule() {
+  const s = getSettings();
+  return s.locationSchedule || {};
+}
+export function setLocationSchedule(schedule) {
+  const s = getSettings();
+  saveSettings({ ...s, locationSchedule: schedule || {} });
+}
+// Returns today's scheduled location string (empty if no schedule entry).
+export function getTodayScheduledLocation() {
+  const schedule = getLocationSchedule();
+  const dayKey = LOCATION_SCHEDULE_DAYS[new Date().getDay()];
+  return (schedule[dayKey] || '').trim();
+}
+// True when a schedule exists for today AND the current location differs.
+// The Settings screen surfaces this so the owner can revert with one tap.
+export function isLocationOverridden() {
+  const scheduled = getTodayScheduledLocation();
+  if (!scheduled) return false;
+  const current = (getTodayLocation() || '').trim();
+  return current !== '' && current !== scheduled;
+}
+// Called on app boot — applies today's scheduled location IF set and IF the
+// current todayLocation doesn't already match (don't clobber a manual override
+// during the same day). Returns true if an auto-update fired.
+export function maybeApplyScheduledLocation() {
+  const schedule = getLocationSchedule();
+  const dayKey = LOCATION_SCHEDULE_DAYS[new Date().getDay()];
+  const scheduled = (schedule[dayKey] || '').trim();
+  if (!scheduled) return false;
+  const current = getTodayLocation();
+  // Update only when (a) nothing is set yet, or (b) the last-update was
+  // before midnight today (so a manual override later in the same day wins).
+  const lastIso = getTodayLocationUpdatedAt();
+  const lastWasToday = lastIso && new Date(lastIso).toLocaleDateString() === new Date().toLocaleDateString();
+  if (current === scheduled) return false;
+  if (lastWasToday && current) return false;
+  setTodayLocation(scheduled);
+  return true;
 }
 
 // ── Daily goal (drinks target) ──
@@ -1498,13 +1504,22 @@ export function setDailyGoal(n) {
 }
 
 // ── Streak — consecutive days where total drink count ≥ daily goal ──
-export function getCurrentStreak() {
+// Drill weekends (per employee.drillDates) don't break the streak — they pause it.
+export function getCurrentStreak(employeeId = null) {
   const goal = getDailyGoal();
   if (goal <= 0) return 0;
+  let drillDates = new Set();
+  if (employeeId) {
+    const emp = getEmployees().find((e) => e.id === employeeId);
+    drillDates = new Set(emp?.drillDates || []);
+  }
   let streak = 0;
   for (let i = 1; i < 60; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
+    const dateIso = d.toISOString().slice(0, 10); // YYYY-MM-DD
+    // Drill day: skip without breaking the streak
+    if (drillDates.has(dateIso)) continue;
     const key = `quez_drink_log_${dateKeyCompact(d)}`;
     const raw = localStorage.getItem(key);
     if (!raw) break;
@@ -1514,6 +1529,26 @@ export function getCurrentStreak() {
     else break;
   }
   return streak;
+}
+
+// ── My last N drinks (for the "Last 5 drinks I made" card) ──
+// Reads today's drink log + yesterday's if today is light, filtered by name.
+export function getMyRecentDrinks(name, limit = 5) {
+  if (!name) return [];
+  const out = [];
+  for (let i = 0; i < 3 && out.length < limit; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const raw = localStorage.getItem(`quez_drink_log_${dateKeyCompact(d)}`);
+    if (!raw) continue;
+    try {
+      const log = JSON.parse(raw);
+      // Most recent first within each day's log
+      const mine = log.filter((it) => it.takenBy === name).reverse();
+      out.push(...mine);
+    } catch {}
+  }
+  return out.slice(0, limit);
 }
 
 // ── Shift hand-off notes (rolling, 24h auto-expire on read) ──
@@ -1564,27 +1599,7 @@ export function getMyWeekStats(name, employeeId) {
       drinks += log.filter((it) => it.takenBy === name).length;
     } catch {}
   }
-  // Hours worked this week
-  const punches = storageGet(PUNCHES_KEY) || [];
-  let hours = 0;
-  punches.forEach((p) => {
-    if (p.employeeId !== employeeId) return;
-    if (!p.clockInTime || !p.clockOutTime) return;
-    const inAt = new Date(p.clockInTime);
-    if (inAt < start) return;
-    const ms = new Date(p.clockOutTime) - inAt;
-    if (ms > 0) hours += ms / 3600000;
-  });
-  return {
-    drinks,
-    hours: Math.round(hours * 10) / 10,
-    drinksPerHour: hours > 0 ? Math.round((drinks / hours) * 10) / 10 : 0,
-  };
-}
-
-// ── My pending swap/day-off requests ──
-export function getMyPendingSwaps(employeeId) {
-  return getSwapRequests().filter((r) => r.employeeId === employeeId && r.status === 'pending');
+  return { drinks };
 }
 
 // ── Eighty-sixed menu items (for the briefing) ──
@@ -1609,22 +1624,6 @@ export function setCalendarNote(dateStr, text) {
   if (text && text.trim()) notes[dateStr] = text.trim();
   else delete notes[dateStr];
   localStorage.setItem(CAL_NOTES_KEY, JSON.stringify(notes));
-}
-
-export function getUpcomingShiftsFor(employeeId, daysAhead = 14) {
-  const schedule = getSchedule();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const upcoming = [];
-  for (let i = 0; i < daysAhead; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const key = isoDateKey(d);
-    (schedule[key] || []).forEach((s) => {
-      if (s.employeeId === employeeId) upcoming.push({ ...s, date: key });
-    });
-  }
-  return upcoming;
 }
 
 export function isoDateKey(d) {
@@ -1708,12 +1707,14 @@ function dateKeyCompact(d) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Aggregate drinks served across N days. Returns sorted top list + totals.
-export function getDrinkReportRange(daysBack = 7) {
+// Optional `endDaysAgo` lets callers compare to the same window one year ago
+// (e.g., daysBack=7, endDaysAgo=365 → last week of last year).
+export function getDrinkReportRange(daysBack = 7, endDaysAgo = 0) {
   const tally = {};
   let total = 0;
   for (let i = 0; i < daysBack; i++) {
     const d = new Date();
-    d.setDate(d.getDate() - i);
+    d.setDate(d.getDate() - i - endDaysAgo);
     const key = `quez_drink_log_${dateKeyCompact(d)}`;
     const raw = localStorage.getItem(key);
     if (!raw) continue;
@@ -1733,31 +1734,6 @@ export function getDrinkReportRange(daysBack = 7) {
     .sort((a, b) => b[1].count - a[1].count)
     .map(([name, row]) => ({ name, ...row }));
   return { total, ranked };
-}
-
-// Labor hours per employee across the date range (uses time punches)
-export function getLaborReportRange(daysBack = 7) {
-  const PUNCHES = storageGet(PUNCHES_KEY) || [];
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - (daysBack - 1));
-  const byEmployee = {};
-  PUNCHES.forEach((p) => {
-    if (!p.clockInTime || !p.clockOutTime) return;
-    const inAt = new Date(p.clockInTime);
-    if (inAt < start) return;
-    const ms = new Date(p.clockOutTime) - inAt;
-    if (ms <= 0) return;
-    const hours = ms / 3600000;
-    if (!byEmployee[p.name]) byEmployee[p.name] = { hours: 0, shifts: 0, role: p.role };
-    byEmployee[p.name].hours += hours;
-    byEmployee[p.name].shifts += 1;
-  });
-  const ranked = Object.entries(byEmployee)
-    .sort((a, b) => b[1].hours - a[1].hours)
-    .map(([name, row]) => ({ name, ...row, hours: Math.round(row.hours * 100) / 100 }));
-  const totalHours = ranked.reduce((s, r) => s + r.hours, 0);
-  return { totalHours: Math.round(totalHours * 100) / 100, byEmployee: ranked };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1809,49 +1785,10 @@ export function getLastOrder(employeeId) {
   try { return JSON.parse(raw); } catch { return []; }
 }
 
-// ── Currently clocked-in (no clock-out yet today) ──
-export function getCurrentlyClockedIn() {
-  const records = loadTodayClockRecords() || [];
-  return records.filter((r) => r.clockInTime && !r.clockOutTime);
-}
-
 // ── My drink count today ──
 export function getMyDrinkCountToday(name) {
   if (!name) return 0;
   return getTodayDrinkLog().filter((d) => d.takenBy === name).length;
-}
-
-// ── Editable timesheet — list/fix punches across a date range ──
-const PUNCHES_FULL_KEY = PUNCHES_KEY; // alias for clarity below
-
-export function getPunchesInRange(daysBack = 14) {
-  const list = storageGet(PUNCHES_FULL_KEY) || [];
-  const cutoff = new Date();
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - (daysBack - 1));
-  return list
-    .filter((p) => p.clockInTime && new Date(p.clockInTime) >= cutoff)
-    .sort((a, b) => new Date(b.clockInTime) - new Date(a.clockInTime));
-}
-
-export function updatePunch(originalClockInIso, employeeId, patch, byName = 'admin') {
-  const list = storageGet(PUNCHES_FULL_KEY) || [];
-  const idx = list.findIndex((p) => p.clockInTime === originalClockInIso && p.employeeId === employeeId);
-  if (idx === -1) return false;
-  const before = { ...list[idx] };
-  list[idx] = { ...list[idx], ...patch, editedAt: new Date().toISOString(), editedBy: byName };
-  storageSet(PUNCHES_FULL_KEY, list);
-  logAudit('punch_edit', { employeeName: before.name, originalIn: before.clockInTime, byName });
-  return true;
-}
-
-export function deletePunch(clockInIso, employeeId, byName = 'admin') {
-  const list = storageGet(PUNCHES_FULL_KEY) || [];
-  const target = list.find((p) => p.clockInTime === clockInIso && p.employeeId === employeeId);
-  const filtered = list.filter((p) => !(p.clockInTime === clockInIso && p.employeeId === employeeId));
-  storageSet(PUNCHES_FULL_KEY, filtered);
-  if (target) logAudit('punch_delete', { employeeName: target.name, clockInTime: clockInIso, byName });
-  return list.length !== filtered.length;
 }
 
 // ── Drink waste / remake log ──
@@ -1910,6 +1847,7 @@ export const DEFAULT_INVENTORY_ITEMS = [
   { id: 'syrup_lav',   name: 'Lavender syrup',     unit: 'btl', par: 1, onHand: 1, category: 'Syrups' },
   { id: 'beans',       name: 'Espresso beans',     unit: 'lb',  par: 5, onHand: 5, category: 'Coffee' },
   { id: 'cold_brew',   name: 'Cold brew concentrate', unit: 'gal', par: 2, onHand: 2, category: 'Coffee' },
+  { id: 'cups_8',      name: '8oz kids cups',      unit: 'box', par: 1, onHand: 1, category: 'Cups & Lids' },
   { id: 'cups_12',     name: '12oz cups',          unit: 'box', par: 2, onHand: 2, category: 'Cups & Lids' },
   { id: 'cups_16',     name: '16oz cups',          unit: 'box', par: 2, onHand: 2, category: 'Cups & Lids' },
   { id: 'lids',        name: 'Lids (both sizes)',  unit: 'box', par: 2, onHand: 2, category: 'Cups & Lids' },
@@ -1918,9 +1856,13 @@ export const DEFAULT_INVENTORY_ITEMS = [
 ];
 
 export function getInventory() {
+  // Always return a fresh copy. The DEFAULT array was being mutated in-place
+  // by deductInventoryForOrder when no saved inventory existed, polluting
+  // subsequent calls and the Inventory screen's "reset to default" path.
+  const cloneDefault = () => DEFAULT_INVENTORY_ITEMS.map((i) => ({ ...i }));
   const raw = localStorage.getItem(INVENTORY_KEY);
-  if (!raw) return DEFAULT_INVENTORY_ITEMS;
-  try { return JSON.parse(raw); } catch { return DEFAULT_INVENTORY_ITEMS; }
+  if (!raw) return cloneDefault();
+  try { return JSON.parse(raw); } catch { return cloneDefault(); }
 }
 export function saveInventory(items) {
   localStorage.setItem(INVENTORY_KEY, JSON.stringify(items));
@@ -1937,43 +1879,121 @@ export function getLowStockItems() {
   return getInventory().filter((i) => (i.onHand ?? 0) < (i.par ?? 0));
 }
 
-// ── Shift-swap requests (in-app only, no SMS) ──
-const SWAP_KEY = 'quez_shift_swaps';
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-drink ingredient consumption → inventory deduction on Mark Complete.
+// Square only tracks units (1 latte sold). Quez App owns the granularity:
+// when a drink completes, deduct beans, milk, syrups, cups, lids in the
+// appropriate fractional units so par-level alerts fire BEFORE a stockout.
+// ─────────────────────────────────────────────────────────────────────────────
 
-export function getSwapRequests() {
-  const raw = localStorage.getItem(SWAP_KEY);
-  if (!raw) return [];
-  try { return JSON.parse(raw); } catch { return []; }
+// House conversion constants — match the inventory unit definitions above.
+const SHOTS_PER_LB     = 50;    // 1 shot ≈ 9g; 5 lb par ≈ 250 shots
+const PUMPS_PER_BOTTLE = 100;   // 0.25 oz pump × 25 oz bottle
+const OZ_PER_GAL       = 128;
+const OZ_PER_QT        = 32;
+const CUPS_PER_BOX     = 200;   // typical 200-count case
+const LIDS_PER_BOX     = 400;
+const WHIPS_PER_CAN    = 50;
+const COLD_BREW_OZ_PER_DRINK = { '8oz': 6,  '12oz': 8,  '16oz': 10 };
+const MILK_OZ_PER_DRINK      = { '8oz': 6,  '12oz': 8,  '16oz': 10 };
+const SHOTS_PER_DRINK        = { '8oz': 1,  '12oz': 2,  '16oz': 3 };
+const SYRUP_PUMPS_PER_DRINK  = { '8oz': 1,  '12oz': 2,  '16oz': 3 };
+const CUP_INVENTORY_ID       = { '8oz': 'cups_8', '12oz': 'cups_12', '16oz': 'cups_16' };
+
+function _resolveMilkInventoryId(modifiers) {
+  if (modifiers.includes('milk_none')) return null;
+  if (modifiers.includes('milk_oat'))    return 'milk_oat';
+  if (modifiers.includes('milk_almond')) return 'milk_almond';
+  if (modifiers.includes('milk_2pct'))   return 'milk_2pct';
+  if (modifiers.includes('milk_skim'))   return 'milk_2pct'; // no separate skim line
+  return 'milk_whole';
 }
-export function saveSwapRequests(list) {
-  localStorage.setItem(SWAP_KEY, JSON.stringify(list));
-}
-export function createSwapRequest({ employeeId, employeeName, dateStr, shiftId, reason = '', type = 'shift_drop' }) {
-  const list = getSwapRequests();
-  list.unshift({
-    id: 'swp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
-    type, // 'shift_drop' (drop a scheduled shift) | 'day_off' (block a future date)
-    employeeId, employeeName, dateStr, shiftId,
-    reason: reason.trim(),
-    status: 'pending',
-    createdAt: new Date().toISOString(),
+
+// Deduct ingredients for a single completed order. Skips practice orders.
+// Imports drinkRecipes lazily so storage.js doesn't pull a UI-side data module
+// up the chain (avoids a circular import).
+export function deductInventoryForOrder(order) {
+  if (!order || order.practice) return null;
+
+  // Lazy import — drinkRecipes is a pure data file, safe to import here
+  // eslint-disable-next-line global-require
+  const { drinkRecipes } = require('../data/drinkRecipes');
+
+  const inv = getInventory();
+  const byId = Object.fromEntries(inv.map((i) => [i.id, i]));
+  const deduct = (id, amount) => {
+    const item = byId[id];
+    if (!item || !amount) return;
+    const next = Math.max(0, (item.onHand ?? item.par ?? 0) - amount);
+    item.onHand = Math.round(next * 1000) / 1000;
+  };
+
+  order.items.forEach((it) => {
+    const size = it.size || '12oz';
+    const drink = drinkRecipes.find((d) => d.id === it.drinkId);
+    if (!drink) return;
+    const tags = drink.tags || {};
+    const mods = it.modifiers || [];
+
+    // Cup + lid (every drink)
+    const cupInvId = CUP_INVENTORY_ID[size] || 'cups_12';
+    deduct(cupInvId, 1 / CUPS_PER_BOX);
+    deduct('lids', 1 / LIDS_PER_BOX);
+
+    // Espresso shots — base + extras
+    if (tags.usesEspresso) {
+      let shots = SHOTS_PER_DRINK[size] || 2;
+      if (mods.includes('shot_extra'))     shots += 1;
+      if (mods.includes('shot_two_extra')) shots += 2;
+      deduct('beans', shots / SHOTS_PER_LB);
+    }
+
+    // Milk (gallons for dairy, quarts for plant-based)
+    if (tags.usesMilk) {
+      const milkId = _resolveMilkInventoryId(mods);
+      if (milkId) {
+        const oz = MILK_OZ_PER_DRINK[size] || 8;
+        const divisor = (milkId === 'milk_oat' || milkId === 'milk_almond') ? OZ_PER_QT : OZ_PER_GAL;
+        deduct(milkId, oz / divisor);
+      }
+    }
+
+    // Cold brew (gallons)
+    if (tags.usesColdBrew) {
+      const oz = COLD_BREW_OZ_PER_DRINK[size] || 8;
+      deduct('cold_brew', oz / OZ_PER_GAL);
+    }
+
+    // Syrups — base pumps for drinks that contain that ingredient,
+    // plus +1 pump for each "extra" modifier (even on non-base drinks).
+    const basePumps = SYRUP_PUMPS_PER_DRINK[size] || 2;
+    const syrupPairs = [
+      { tag: 'containsHoney',     extra: 'extra_honey',     id: 'syrup_honey' },
+      { tag: 'containsVanilla',   extra: 'extra_vanilla',   id: 'syrup_van'   },
+      { tag: 'containsCaramel',   extra: 'extra_caramel',   id: 'syrup_car'   },
+      { tag: 'containsCinnamon',  extra: 'extra_cinnamon',  id: 'syrup_cin'   },
+      { tag: 'containsLavender',  extra: 'extra_lavender',  id: 'syrup_lav'   },
+    ];
+    syrupPairs.forEach(({ tag, extra, id }) => {
+      let pumps = tags[tag] ? basePumps : 0;
+      if (mods.includes(extra)) pumps += 1;
+      if (pumps > 0) deduct(id, pumps / PUMPS_PER_BOTTLE);
+    });
+    // Mocha sauce — covers white chocolate and chocolate variants
+    {
+      let pumps = (tags.containsWhiteChocolate || tags.containsChocolate) ? basePumps : 0;
+      if (mods.includes('extra_mocha')) pumps += 1;
+      if (pumps > 0) deduct('syrup_mocha', pumps / PUMPS_PER_BOTTLE);
+    }
+
+    // Whipped cream
+    if (tags.containsWhip || mods.includes('whip')) {
+      deduct('whip', 1 / WHIPS_PER_CAN);
+    }
   });
-  saveSwapRequests(list);
-  logAudit('swap_requested', { type, employeeName, dateStr, shiftId });
-  return list[0];
-}
-export function resolveSwapRequest(id, status, byName) {
-  const list = getSwapRequests();
-  const idx = list.findIndex((r) => r.id === id);
-  if (idx === -1) return null;
-  list[idx] = { ...list[idx], status, resolvedAt: new Date().toISOString(), resolvedBy: byName };
-  saveSwapRequests(list);
-  logAudit(status === 'approved' ? 'swap_approved' : 'swap_denied',
-    { employeeName: list[idx].employeeName, dateStr: list[idx].dateStr, byName });
-  return list[idx];
-}
-export function getPendingSwapCount() {
-  return getSwapRequests().filter((r) => r.status === 'pending').length;
+
+  saveInventory(inv);
+  return inv;
 }
 
 // ── CSV export helper (browser download) ──
@@ -2007,37 +2027,6 @@ export function getReportRecipients() {
 export function setAdditionalEmails(arr) {
   const s = getSettings();
   saveSettings({ ...s, additionalEmails: arr.filter(Boolean) });
-}
-
-// ── Labor cost (uses wagePerHour on employee) ──
-export function getLaborCostRange(daysBack = 7) {
-  const employees = getEmployees();
-  const wageById = Object.fromEntries(employees.map((e) => [e.id, e.wagePerHour || 0]));
-  const wageByName = Object.fromEntries(employees.map((e) => [e.name, e.wagePerHour || 0]));
-  const list = storageGet(PUNCHES_FULL_KEY) || [];
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - (daysBack - 1));
-  let totalCost = 0;
-  const byEmployee = {};
-  list.forEach((p) => {
-    if (!p.clockInTime || !p.clockOutTime) return;
-    const inAt = new Date(p.clockInTime);
-    if (inAt < start) return;
-    const ms = new Date(p.clockOutTime) - inAt;
-    if (ms <= 0) return;
-    const hours = ms / 3600000;
-    const wage = wageById[p.employeeId] ?? wageByName[p.name] ?? 0;
-    const cost = hours * wage;
-    totalCost += cost;
-    if (!byEmployee[p.name]) byEmployee[p.name] = { hours: 0, cost: 0, wage };
-    byEmployee[p.name].hours += hours;
-    byEmployee[p.name].cost += cost;
-  });
-  const ranked = Object.entries(byEmployee)
-    .map(([name, r]) => ({ name, hours: Math.round(r.hours * 100) / 100, cost: Math.round(r.cost * 100) / 100, wage: r.wage }))
-    .sort((a, b) => b.cost - a.cost);
-  return { totalCost: Math.round(totalCost * 100) / 100, byEmployee: ranked };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2092,24 +2081,20 @@ export function setPreLaunchTaskHidden(taskId, hidden) {
 // LONG-TERM DATA HYGIENE
 // ------------------------------------------------------------
 // localStorage has a ~5 MB quota on most browsers. Without pruning, drink
-// logs, completed-order history, time punches, and per-day waste logs grow
-// linearly forever — somewhere around month 6–12 the browser starts refusing
-// writes silently and drinks stop saving.
+// logs, completed-order history, and per-day waste logs grow linearly
+// forever — somewhere around month 6–12 the browser starts refusing writes
+// silently and drinks stop saving.
 //
 // Strategy:
 //   • Drinks  → keep 90 days of raw daily logs (so reports + waste-detail UI
 //                still work), then collapse older days into a per-month rollup
 //                that just stores `{drinkId, size, prepType, count}`. Owner
 //                still sees "January sold 412 honey mochas" forever.
-//   • Punches → keep 365 days of raw punches (timesheet, labor cost), then
-//                collapse older into per-month rollup `{employeeId, name,
-//                totalHours, shiftCount}` — payroll history preserved.
 //   • Waste   → keep 90 days raw, then per-month rollup `{drinkId, reason,
 //                count}`. Lets the owner spot patterns over time.
-//   • Schedule, swaps, flagged items, daily checklists, periodic checklists,
-//     per-day order seq counters → just delete past retention; nothing of
-//     audit value is lost (resolved swaps + submitted checklists exist in
-//     audit log + email reports).
+//   • Flagged items, daily checklists, periodic checklists, per-day order
+//     seq counters → just delete past retention; nothing of audit value is
+//     lost (submitted checklists exist in audit log + email reports).
 //
 // Runs at most once per calendar day. Fires from AppContext on boot.
 // ============================================================
@@ -2119,10 +2104,8 @@ const PRUNE_LAST_KEY = 'quez_last_prune_at';
 const RETENTION_DAYS = {
   drinkLog:          90,
   completedOrders:   90,
+  cancelledOrders:   90,
   orderSeq:          30,
-  punches:           365,
-  schedule:          60,
-  swapResolved:      60,
   flagged:           90,
   dailyChecklist:    90,
   periodicChecklist: 365,
@@ -2262,102 +2245,6 @@ function pruneWasteLogs(now) {
   return { bytesFreed, daysRolled };
 }
 
-function prunePunches(now) {
-  const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - RETENTION_DAYS.punches);
-  const list = storageGet(PUNCHES_FULL_KEY) || [];
-  if (list.length === 0) return { bytesFreed: 0, rolled: 0 };
-  const keep = [];
-  const old  = [];
-  for (const p of list) {
-    const ref = p.clockInTime || p.clockOutTime;
-    if (!ref) { keep.push(p); continue; }
-    const t = new Date(ref);
-    if (Number.isNaN(t.getTime()) || t >= cutoff) keep.push(p);
-    else old.push(p);
-  }
-  if (old.length === 0) return { bytesFreed: 0, rolled: 0 };
-
-  const rollups = {}; // ymKey → { "employeeId|name": rec }
-  for (const p of old) {
-    if (!p.clockInTime || !p.clockOutTime) continue;
-    const inAt = new Date(p.clockInTime);
-    const outAt = new Date(p.clockOutTime);
-    if (Number.isNaN(inAt.getTime()) || Number.isNaN(outAt.getTime())) continue;
-    const ms = outAt - inAt;
-    if (ms <= 0) continue;
-    const month = ymKey(inAt);
-    const rollupKey = `quez_punch_rollup_${month}`;
-    rollups[rollupKey] = rollups[rollupKey] || {};
-    const key = `${p.employeeId || ''}|${p.name || 'Unknown'}`;
-    if (!rollups[rollupKey][key]) {
-      rollups[rollupKey][key] = { employeeId: p.employeeId || null, name: p.name || 'Unknown', totalHours: 0, shiftCount: 0 };
-    }
-    rollups[rollupKey][key].totalHours += ms / 3600000;
-    rollups[rollupKey][key].shiftCount += 1;
-  }
-  for (const rollupKey in rollups) {
-    const existing = safeParse(localStorage.getItem(rollupKey), []);
-    const merged = {};
-    for (const e of existing) merged[`${e.employeeId || ''}|${e.name}`] = e;
-    for (const k in rollups[rollupKey]) {
-      const r = rollups[rollupKey][k];
-      r.totalHours = Math.round(r.totalHours * 100) / 100;
-      if (merged[k]) {
-        merged[k].totalHours = Math.round((merged[k].totalHours + r.totalHours) * 100) / 100;
-        merged[k].shiftCount += r.shiftCount;
-      } else {
-        merged[k] = r;
-      }
-    }
-    localStorage.setItem(rollupKey, JSON.stringify(Object.values(merged)));
-  }
-  const beforeBytes = (localStorage.getItem(PUNCHES_FULL_KEY) || '').length;
-  storageSet(PUNCHES_FULL_KEY, keep);
-  const afterBytes = (localStorage.getItem(PUNCHES_FULL_KEY) || '').length;
-  return { bytesFreed: Math.max(0, beforeBytes - afterBytes), rolled: old.length };
-}
-
-function pruneSchedule(now) {
-  const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - RETENTION_DAYS.schedule);
-  const sched = storageGet(SCHEDULE_KEY);
-  if (!sched || typeof sched !== 'object') return { bytesFreed: 0, removed: 0 };
-  let removed = 0;
-  const next = {};
-  for (const dateStr in sched) {
-    // dateStr is "YYYY-MM-DD"
-    const d = new Date(dateStr + 'T00:00:00');
-    if (Number.isNaN(d.getTime()) || d >= cutoff) {
-      next[dateStr] = sched[dateStr];
-    } else {
-      removed += 1;
-    }
-  }
-  if (removed === 0) return { bytesFreed: 0, removed: 0 };
-  const before = (localStorage.getItem(SCHEDULE_KEY) || '').length;
-  storageSet(SCHEDULE_KEY, next);
-  const after = (localStorage.getItem(SCHEDULE_KEY) || '').length;
-  return { bytesFreed: Math.max(0, before - after), removed };
-}
-
-function pruneSwaps(now) {
-  const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - RETENTION_DAYS.swapResolved);
-  const list = safeParse(localStorage.getItem(SWAP_KEY), []);
-  if (list.length === 0) return { bytesFreed: 0, removed: 0 };
-  const kept = list.filter((r) => {
-    if (r.status === 'pending') return true;
-    const ts = r.resolvedAt || r.createdAt;
-    if (!ts) return true;
-    const t = new Date(ts);
-    return Number.isNaN(t.getTime()) || t >= cutoff;
-  });
-  const removed = list.length - kept.length;
-  if (removed === 0) return { bytesFreed: 0, removed: 0 };
-  const before = (localStorage.getItem(SWAP_KEY) || '').length;
-  localStorage.setItem(SWAP_KEY, JSON.stringify(kept));
-  const after = (localStorage.getItem(SWAP_KEY) || '').length;
-  return { bytesFreed: Math.max(0, before - after), removed };
-}
-
 function pruneArrayByDate(key, retainDays, now, dateField) {
   const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - retainDays);
   const list = storageGet(key);
@@ -2394,11 +2281,9 @@ export function pruneOldData({ force = false } = {}) {
   const summary = {
     drinkLogs:        pruneDrinkLogs(now),
     completedOrders:  prunePerDayKey('quez_completed_orders_', RETENTION_DAYS.completedOrders, now),
+    cancelledOrders:  prunePerDayKey('quez_cancelled_orders_', RETENTION_DAYS.cancelledOrders, now),
     orderSeq:         prunePerDayKey('quez_order_seq_',        RETENTION_DAYS.orderSeq,        now),
     wasteLogs:        pruneWasteLogs(now),
-    punches:          prunePunches(now),
-    schedule:         pruneSchedule(now),
-    swaps:            pruneSwaps(now),
     flagged:          pruneArrayByDate(FLAGGED_KEY,   RETENTION_DAYS.flagged,           now, 'date'),
     dailyChecklist:   pruneArrayByDate(DAILY_REC_KEY, RETENTION_DAYS.dailyChecklist,    now, 'submittedAt'),
     periodicChecklist: pruneArrayByDate('quez_periodic_checklist_records',

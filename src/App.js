@@ -20,18 +20,14 @@ import OrderScreen from './screens/OrderScreen';
 import Dashboard from './screens/Dashboard';
 import AdminHub from './screens/AdminHub';
 import Profile from './screens/Profile';
-import Schedule from './screens/Schedule';
 import Reports from './screens/Reports';
 import Trainees from './screens/Trainees';
 import AuditLog from './screens/AuditLog';
 import PreLaunchTimeline from './screens/PreLaunchTimeline';
-import Timesheet from './screens/Timesheet';
 import WasteLog from './screens/WasteLog';
 import Inventory from './screens/Inventory';
-import ShiftSwaps from './screens/ShiftSwaps';
 
 import {
-  autoCloseOrphanedPunches,
   checkAndSendIncompleteAlert,
   getEmployees,
   applyTrainingBypassIfEnabled,
@@ -49,19 +45,21 @@ function getNavTabs(role, language) {
   const list  = { screen: 'dailyChecklist',    icon: '☑', label: lang === 'es' ? 'Lista' : 'Checklist' };
   const admin = { screen: 'adminHub',          icon: '⚙', label: lang === 'es' ? 'Admin' : 'Admin' };
   const train = { screen: 'training',          icon: '🎓', label: lang === 'es' ? 'Entrena' : 'Training' };
-  const sched = { screen: 'schedule',          icon: '📆', label: lang === 'es' ? 'Horario' : 'Schedule' };
   const more  = { screen: '__more__',          icon: '⋯', label: lang === 'es' ? 'Más' : 'More' };
 
+  // Role-aware 5th slot — every signed-in user gets 5 primary nav items.
+  // The 4th slot rotates by role: Admin for owner/mgr, Drink Guide for
+  // baristas (most-referenced screen during a rush), Training for trainees.
+  const drinkGuide = { screen: 'drinkGuide', icon: '☕', label: lang === 'es' ? 'Bebidas' : 'Drinks' };
+
   if (ADMIN_ROLES.includes(role)) {
-    // Owner / Manager — admin tools win the primary slots
     return [home, order, list, admin, more];
   }
   if (role === 'leadBarista' || role === 'barista') {
-    // Lead/Barista — Schedule in primary (swap requests are launched from inside it)
-    return [home, order, list, sched, more];
+    return [home, order, list, drinkGuide, more];
   }
   if (role === 'trainee') {
-    return [home, train, sched, more];
+    return [home, train, drinkGuide, more];
   }
   return [home, more];
 }
@@ -71,12 +69,13 @@ function getMoreItems(role, language) {
   const lang = language || 'en';
   const items = [];
 
-  // Drink Guide — everyone, lives in More so it's never duplicated against primary nav
-  items.push({ screen: 'drinkGuide', icon: '☕', label: lang === 'es' ? 'Guía de Bebidas' : 'Drink Guide' });
-
-  // Schedule is already a primary tab for barista/lead/trainee — only surface in More for admin
-  // (admin reaches it via AdminHub tile too, but having it in More is convenient)
-  // For now, no separate Schedule entry here for any role — admins use AdminHub.
+  // Drink Guide — shown in More for any role whose PRIMARY nav doesn't
+  // already include it. Owner/manager + guest get it here; baristas and
+  // trainees have it as a primary tab and don't need a duplicate.
+  const primaryHasDrinkGuide = role === 'leadBarista' || role === 'barista' || role === 'trainee';
+  if (!primaryHasDrinkGuide) {
+    items.push({ screen: 'drinkGuide', icon: '☕', label: lang === 'es' ? 'Guía de Bebidas' : 'Drink Guide' });
+  }
 
   // Admin: training portal (review), barista/lead: their own training
   if (ADMIN_ROLES.includes(role)) {
@@ -89,11 +88,6 @@ function getMoreItems(role, language) {
   // Periodic for lead barista
   if (role === 'leadBarista') {
     items.push({ screen: 'periodicChecklists', icon: '📅', label: lang === 'es' ? 'Periódico' : 'Periodic' });
-  }
-
-  // Shift Swaps for trainee + admin (lead/barista already have it in primary nav)
-  if (role === 'trainee' || ADMIN_ROLES.includes(role)) {
-    items.push({ screen: 'shiftSwaps', icon: '🔄', label: lang === 'es' ? 'Cambios de Turno' : 'Shift Swaps' });
   }
 
   // Profile + Sign Out — everyone
@@ -158,7 +152,6 @@ function AppInner() {
 
   useEffect(() => {
     if (isReady) {
-      autoCloseOrphanedPunches();
       checkAndSendIncompleteAlert();
       if (session) {
         const employees = getEmployees();
@@ -242,15 +235,12 @@ function AppInner() {
         {currentScreen === 'orders'              && <OrderScreen />}
         {currentScreen === 'adminHub'            && <AdminHub />}
         {currentScreen === 'profile'             && <Profile />}
-        {currentScreen === 'schedule'            && <Schedule />}
         {currentScreen === 'reports'             && <Reports />}
         {currentScreen === 'trainees'            && <Trainees />}
         {currentScreen === 'auditLog'            && <AuditLog />}
         {currentScreen === 'preLaunchTimeline'   && <PreLaunchTimeline />}
-        {currentScreen === 'timesheet'           && <Timesheet />}
         {currentScreen === 'wasteLog'            && <WasteLog />}
         {currentScreen === 'inventory'           && <Inventory />}
-        {currentScreen === 'shiftSwaps'          && <ShiftSwaps />}
       </div>
 
       <nav className="app-nav">

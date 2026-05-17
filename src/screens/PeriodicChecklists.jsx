@@ -39,7 +39,7 @@ import {
   markAnnualSubmitted,
   savePeriodicChecklistRecord,
 } from '../utils/storage';
-import { sendQuezEmail } from '../utils/emailjs';
+import { sendQuezEmail, sendStatusMessage } from '../utils/emailjs';
 import { fmtClock } from '../utils/timeFormat';
 import '../styles/periodic.css';
 
@@ -114,6 +114,31 @@ const CHECKLISTS = [
   },
 ];
 
+// ── Attribution pill (who last touched this item) ────────────
+function initialsOf(name) {
+  if (!name) return '?';
+  return name.split(/\s+/).map((p) => p[0]?.toUpperCase()).filter(Boolean).slice(0, 2).join('');
+}
+const AttribPill = ({ byName, at }) => {
+  if (!byName) return null;
+  const timeStr = at ? new Date(at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+  return (
+    <span
+      title={`${byName}${timeStr ? ' · ' + timeStr : ''}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 22, height: 22, borderRadius: '50%',
+        background: 'rgba(212,175,55,0.12)',
+        border: '1px solid rgba(212,175,55,0.4)',
+        color: '#D4AF37', fontSize: 9, fontWeight: 800,
+        letterSpacing: '0.04em', flexShrink: 0, marginRight: 8,
+      }}
+    >
+      {initialsOf(byName)}
+    </span>
+  );
+};
+
 // ── Local storage key for in-progress state ───────────────────
 function inProgressKey(type) {
   const d = new Date();
@@ -140,6 +165,8 @@ export default function PeriodicChecklists() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [sending, setSending] = useState(false);
   const [submitted, setSubmitted] = useState(false); // local echo after submit in session
+  const [emailDelivered, setEmailDelivered] = useState(true);
+  const [emailStatusText, setEmailStatusText] = useState('');
   // Owner/manager can force-start a checklist outside its normal cadence
   const [forceStarted, setForceStarted] = useState({});  // { [tabKey]: bool }
   const canForceStart = userRole === 'owner' || userRole === 'manager';
@@ -175,9 +202,11 @@ export default function PeriodicChecklists() {
       [id]: {
         ...prev[id],
         checked: !(prev[id]?.checked),
+        byName: operatorName,
+        at: new Date().toISOString(),
       },
     }));
-  }, []);
+  }, [operatorName]);
 
   const toggleNotes = useCallback((id) => {
     setItemState((prev) => ({
@@ -195,9 +224,11 @@ export default function PeriodicChecklists() {
       [id]: {
         ...prev[id],
         notes: value,
+        byName: operatorName,
+        at: new Date().toISOString(),
       },
     }));
-  }, []);
+  }, [operatorName]);
 
   // ── Progress ────────────────────────────────────────────────
   const items = config?.items || [];
@@ -253,8 +284,9 @@ export default function PeriodicChecklists() {
     const subject = config.emailSubject(location);
     const body = buildEmailBody();
 
+    let emailResult = { ok: true };
     try {
-      await sendQuezEmail({
+      emailResult = await sendQuezEmail({
         subject,
         templateParams: {
           subject,
@@ -265,10 +297,11 @@ export default function PeriodicChecklists() {
         },
       });
     } catch (e) {
-      console.warn('Periodic checklist email queued:', e);
+      console.warn('Periodic checklist email exception:', e);
+      emailResult = { ok: false, reason: 'send-error' };
     }
 
-    // Save record to localStorage
+    // Save record to localStorage — submission is independent of email delivery
     const record = {
       type: activeTab,
       operator: operatorName,
@@ -293,6 +326,9 @@ export default function PeriodicChecklists() {
 
     setSending(false);
     setSubmitted(true);
+    // Tell the user the truth about email delivery
+    setEmailStatusText(sendStatusMessage(emailResult).text);
+    setEmailDelivered(emailResult.ok);
   }
 
   // ── Role gate ────────────────────────────────────────────────
@@ -388,7 +424,7 @@ export default function PeriodicChecklists() {
       {/* ── Already submitted banner ── */}
       {isAlreadySubmitted && (
         <div className="periodic-submitted-banner">
-          <div className="periodic-submitted-banner__icon">✅</div>
+          <div className="periodic-submitted-banner__icon">{emailDelivered ? '✅' : '📝'}</div>
           <div className="periodic-submitted-banner__text">
             <strong>
               {isSpanish
@@ -396,9 +432,13 @@ export default function PeriodicChecklists() {
                 : `${config.label} Checklist submitted`}
             </strong>
             <br />
-            {isSpanish
-              ? 'El registro fue guardado y el correo enviado. Regresa cuando corresponda.'
-              : 'The log was saved and email sent. Come back when it\'s due again.'}
+            {emailDelivered
+              ? (isSpanish
+                  ? 'El registro fue guardado y el correo enviado. Regresa cuando corresponda.'
+                  : 'The log was saved and the email was sent. Come back when it\'s due again.')
+              : (isSpanish
+                  ? `El registro fue guardado. ${emailStatusText || 'El correo no se envió.'}`
+                  : `The log was saved. ${emailStatusText || 'Email did not send.'}`)}
           </div>
         </div>
       )}
@@ -460,6 +500,7 @@ export default function PeriodicChecklists() {
                       className={`periodic-item ${state.checked ? 'periodic-item--checked' : ''}`}
                     >
                       <div className="periodic-item__row">
+                        <AttribPill byName={state.byName} at={state.at} />
                         {/* Custom checkbox */}
                         <div
                           className={`periodic-item__check-box ${

@@ -613,6 +613,18 @@ export const phase2SkillGroups = [
     title: { en: 'Espresso Extraction', es: 'Extracción de Espresso' },
     skills: [
       {
+        id: 'es_00',
+        critical: true,
+        skill: {
+          en: 'House extraction standard — memorize: 18g in / 36g out / 25–30s / 200°F brew (1:2 ratio)',
+          es: 'Estándar de extracción — memorizar: 18g entrada / 36g salida / 25–30s / 200°F (proporción 1:2)',
+        },
+        note: {
+          en: 'Every shot. Every time. If any of those four numbers is wrong, the shot is wrong.',
+          es: 'Cada shot. Siempre. Si alguno de esos cuatro números está mal, el shot está mal.',
+        },
+      },
+      {
         id: 'es_01',
         critical: false,
         skill: {
@@ -628,12 +640,12 @@ export const phase2SkillGroups = [
         id: 'es_02',
         critical: false,
         skill: {
-          en: 'Dose — 18g coffee per double shot',
-          es: 'Dosis — 18g de café por shot doble',
+          en: 'Dose — 18g coffee per double shot (weigh, every time)',
+          es: 'Dosis — 18g de café por shot doble (pesar, siempre)',
         },
         note: {
-          en: 'Weigh if scale available. Consistent level tamp.',
-          es: 'Pesar si hay balanza disponible. Tamp nivelado consistente.',
+          en: 'Eyeballed doses cost money and break consistency. Scale lives next to the grinder.',
+          es: 'Dosis a ojo cuestan dinero y rompen la consistencia. La balanza vive junto al molino.',
         },
       },
       {
@@ -676,12 +688,36 @@ export const phase2SkillGroups = [
         id: 'es_06',
         critical: true,
         skill: {
-          en: 'Grind adjustment — know how and when to adjust',
-          es: 'Ajuste de molienda — saber cómo y cuándo ajustar',
+          en: 'Grind adjustment — coarser if pull > 30s, finer if pull < 25s; one notch at a time',
+          es: 'Ajuste de molienda — más grueso si extracción > 30s, más fino si < 25s; una muesca a la vez',
         },
         note: {
-          en: 'Coarser if over 30 sec, finer if under 25',
-          es: 'Más grueso si pasa de 30 seg, más fino si es menor de 25',
+          en: 'Re-dial whenever humidity or bean batch changes. One notch = ~3 seconds on extraction time.',
+          es: 'Recalibra cuando cambie humedad o lote de granos. Una muesca = ~3 segundos en tiempo de extracción.',
+        },
+      },
+      {
+        id: 'es_07',
+        critical: true,
+        skill: {
+          en: 'Taste diagnostic — sour = under-extracted (grind finer), bitter = over-extracted (grind coarser)',
+          es: 'Diagnóstico de sabor — ácido = sub-extraído (moler más fino), amargo = sobre-extraído (moler más grueso)',
+        },
+        note: {
+          en: 'Taste every batch dial-in. Numbers without taste = pretty math, bad coffee.',
+          es: 'Prueba cada calibración. Números sin sabor = matemática bonita, mal café.',
+        },
+      },
+      {
+        id: 'es_08',
+        critical: false,
+        skill: {
+          en: 'Channeling check — visually inspect crema flow; single uniform stream, no jets or pale streaks',
+          es: 'Verificación de canalización — inspeccionar flujo de crema; chorro único uniforme, sin chorros ni rayas pálidas',
+        },
+        note: {
+          en: 'Channeling = uneven tamp or distribution. Pull again. Re-tamp.',
+          es: 'Canalización = tamp desigual o mala distribución. Vuelve a extraer. Vuelve a apisonar.',
         },
       },
     ],
@@ -951,6 +987,96 @@ export const phase2SkillGroups = [
     ],
   },
   {
+    id: 'kds',
+    title: { en: 'Quez App KDS (Bar Display)', es: 'Quez App KDS (Pantalla de Barra)' },
+    skills: [
+      {
+        id: 'kd_01',
+        critical: true,
+        skill: {
+          en: 'Open Quez App → Orders → Queue. This is your bar at-a-glance.',
+          es: 'Abre Quez App → Pedidos → Cola. Esta es tu barra de un vistazo.',
+        },
+        note: {
+          en: 'Square Terminal rings orders at the window; the KDS shows them to you on the bar iPad in real time.',
+          es: 'Square Terminal registra pedidos en la ventana; el KDS te los muestra en el iPad de la barra en tiempo real.',
+        },
+      },
+      {
+        id: 'kd_02',
+        critical: true,
+        skill: {
+          en: 'Read the timer color — green = under 3 min (build), yellow = 3–5 min (move), red = 5+ min (apologize)',
+          es: 'Leer color del cronómetro — verde = menos de 3 min (preparar), amarillo = 3–5 min (acelera), rojo = 5+ min (disculparse)',
+        },
+        note: {
+          en: 'Red tickets get priority over fresh orders. Customer service > FIFO.',
+          es: 'Boletos rojos tienen prioridad sobre pedidos nuevos. Servicio al cliente > FIFO.',
+        },
+      },
+      {
+        id: 'kd_03',
+        critical: false,
+        skill: {
+          en: 'Tap RECIPE on any drink if you forget the build — modal shows steps with modifier adjustments highlighted',
+          es: 'Toca RECETA en cualquier bebida si olvidas la preparación — la ventana muestra pasos con modificadores resaltados',
+        },
+        note: {
+          en: 'No shame in pulling the recipe. Wrong drink wastes more time than the lookup.',
+          es: 'No hay vergüenza en consultar la receta. Una bebida mal hecha pierde más tiempo que la consulta.',
+        },
+      },
+      {
+        id: 'kd_04',
+        critical: true,
+        skill: {
+          en: 'Watch for the SPECIAL ORDER red banner — honey-on-ice needs dissolve-in-hot-espresso step FIRST',
+          es: 'Vigila el banner rojo PEDIDO ESPECIAL — miel sobre hielo requiere disolver en espresso CALIENTE PRIMERO',
+        },
+        note: {
+          en: 'Honey will not dissolve in cold liquid. Skipping this step = customer-facing failure.',
+          es: 'La miel no se disuelve en líquido frío. Saltar este paso = falla visible para el cliente.',
+        },
+      },
+      {
+        id: 'kd_05',
+        critical: false,
+        skill: {
+          en: 'Mark Complete = single tap. Even if the order has 5 drinks, one tap closes it when you hand it to the customer.',
+          es: 'Marcar Completo = un solo toque. Aun si el pedido tiene 5 bebidas, un toque lo cierra al entregarlo.',
+        },
+        note: {
+          en: 'No need to check off each drink individually. Build them all, hand them off, then bump.',
+          es: 'No necesitas marcar cada bebida individualmente. Prepáralas todas, entrégalas, luego cierra.',
+        },
+      },
+      {
+        id: 'kd_06',
+        critical: false,
+        skill: {
+          en: 'Mistake? 5-second Undo toast on Complete. After that, use Recent → Recall to reopen.',
+          es: '¿Error? Aviso de Deshacer durante 5 segundos al completar. Después, usa Recientes → Reabrir.',
+        },
+        note: {
+          en: 'Recent only shows today\'s orders. After midnight, completed orders cannot be recalled.',
+          es: 'Recientes solo muestra pedidos de hoy. Después de medianoche, no se pueden reabrir.',
+        },
+      },
+      {
+        id: 'kd_07',
+        critical: false,
+        skill: {
+          en: 'New-order chime — soft two-tone ding when a ticket lands. Keep volume up during peak.',
+          es: 'Aviso de pedido nuevo — campanilla suave de dos tonos cuando llega un boleto. Mantén volumen durante hora pico.',
+        },
+        note: {
+          en: 'iPad volume controls the chime. Mute mode silences it.',
+          es: 'El volumen del iPad controla la campanilla. Modo silencio la apaga.',
+        },
+      },
+    ],
+  },
+  {
     id: 'pos_service',
     title: { en: 'POS & Customer Service', es: 'POS y Servicio al Cliente' },
     skills: [
@@ -1180,6 +1306,30 @@ export const phase3Drinks = [
     prepType: { en: 'Iced Only', es: 'Solo Frío' },
   },
 ];
+
+// Quick-reference card for espresso extraction — shown in Phase 2 espresso group
+export const espressoStandards = {
+  en: [
+    { label: 'Dose in',     value: '18g',         note: 'Weighed, never eyeballed.' },
+    { label: 'Yield out',   value: '36g',         note: 'Double shot. 1:2 ratio.' },
+    { label: 'Time',        value: '25–30 sec',   note: 'Start the clock when the pump engages.' },
+    { label: 'Brew temp',   value: '200°F',       note: 'LUCCA A53 default; do not adjust without owner sign-off.' },
+    { label: 'Steam pressure', value: '1.2 bar',  note: 'Read off the right-hand gauge.' },
+    { label: 'Sour shot',   value: 'Grind finer',  note: 'Under-extracted. One notch finer, retry.' },
+    { label: 'Bitter shot', value: 'Grind coarser', note: 'Over-extracted. One notch coarser, retry.' },
+    { label: 'Channeling',  value: 'Re-tamp',     note: 'Uneven crema, jets, or pale streaks = bad distribution.' },
+  ],
+  es: [
+    { label: 'Dosis entrada', value: '18g',        note: 'Pesada, nunca a ojo.' },
+    { label: 'Salida',        value: '36g',        note: 'Shot doble. Proporción 1:2.' },
+    { label: 'Tiempo',        value: '25–30 seg',  note: 'Inicia el cronómetro al activar la bomba.' },
+    { label: 'Temp. extracción', value: '200°F',   note: 'Default LUCCA A53; no ajustar sin aprobación del dueño.' },
+    { label: 'Presión vapor', value: '1.2 bar',    note: 'Lee del manómetro derecho.' },
+    { label: 'Shot ácido',    value: 'Moler más fino',  note: 'Sub-extraído. Una muesca más fina, reintenta.' },
+    { label: 'Shot amargo',   value: 'Moler más grueso', note: 'Sobre-extraído. Una muesca más gruesa, reintenta.' },
+    { label: 'Canalización',  value: 'Re-apisonar', note: 'Crema desigual, chorros o rayas pálidas = mala distribución.' },
+  ],
+};
 
 // Phase 3 pass standards (shown to trainer for reference)
 export const phase3Standards = {

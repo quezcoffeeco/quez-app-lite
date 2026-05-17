@@ -5,7 +5,7 @@ import {
   getAllTrainingRecords,
   approveTraineeRoleUpgrade,
 } from '../utils/storage';
-import { sendQuezEmail } from '../utils/emailjs';
+import { sendQuezEmail, sendStatusMessage } from '../utils/emailjs';
 
 function formatDate(iso) {
   if (!iso) return '—';
@@ -43,8 +43,9 @@ export default function TrainingApproval() {
 
     if (result.success) {
       loadData();
-      // Send approval email to owner
-      await sendQuezEmail({
+      // Approval is recorded locally regardless of email. The toast tells the
+      // owner whether they actually got the confirmation email.
+      const emailResult = await sendQuezEmail({
         subject: `[Quez Training] Role Upgrade Approved — ${employee.name}`,
         templateParams: {
           to_name: 'Owner',
@@ -52,7 +53,12 @@ export default function TrainingApproval() {
           message: `Role upgrade approved.\n\nEmployee: ${employee.name}\nPrevious Role: Trainee\nNew Role: Barista\nApproved By: ${approverName}\nDate: ${new Date().toLocaleDateString()}\n\nTraining Summary:\n  Phase 1 — Completed: ${formatDate(record.phase1?.date)}${record.phase1?.bypassed ? ' (bypass)' : ''}\n  Phase 2 — Completed: ${formatDate(record.phase2?.date)} · Trainer: ${record.phase2?.trainerName || '—'}${record.phase2?.bypassed ? ' (bypass)' : ''}\n  Phase 3 — Completed: ${formatDate(record.phase3?.date)} · Trainer: ${record.phase3?.trainerName || '—'}${record.phase3?.bypassed ? ' (bypass)' : ''}\n\nThis employee is now cleared as Barista. Further role upgrades (Lead Barista, Manager) must be done manually in Settings.\n\nQUEZ COFFEE CO. LLC · Council Bluffs, Iowa · Veteran Owned & Operated`,
         },
       });
-      showToast(result.message);
+      const status = sendStatusMessage(emailResult);
+      if (emailResult.ok) {
+        showToast(`${result.message} · ${status.text}`);
+      } else {
+        showToast(`${result.message} · ${status.text}`, status.variant === 'error' ? 'error' : 'warning');
+      }
       setConfirmModal(null);
     } else {
       showToast(result.message, 'error');

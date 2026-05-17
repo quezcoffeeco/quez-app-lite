@@ -62,47 +62,6 @@ const sendEmail = async (params) => {
   }
 };
 
-// ── Clock-In Email ────────────────────────────────────────
-export const sendClockInEmail = async ({ name, role, location, date, time }) => {
-  const { ownerEmail } = getCredentials();
-  await sendEmail({
-    to_email: ownerEmail,
-    subject: `[Quez] Clock-In — ${name} — ${date}`,
-    message: `CLOCK-IN RECORD
-═══════════════════════════════
-Employee:   ${name}
-Role:       ${role}
-Location:   ${location}
-Date:       ${date}
-Time:       ${time}
-═══════════════════════════════
-Quez Coffee Co. — Auto-Generated`,
-  });
-};
-
-// ── Clock-Out Email ───────────────────────────────────────
-export const sendClockOutEmail = async ({ name, role, location, clockInTime, clockOutTime, duration }) => {
-  const { ownerEmail } = getCredentials();
-  const date = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
-  await sendEmail({
-    to_email: ownerEmail,
-    subject: `[Quez] Clock-Out — ${name} — ${date}`,
-    message: `CLOCK-OUT RECORD
-═══════════════════════════════
-Employee:     ${name}
-Role:         ${role}
-Location:     ${location}
-Date:         ${date}
-Clock-In:     ${clockInTime}
-Clock-Out:    ${clockOutTime}
-Shift Length: ${duration}
-═══════════════════════════════
-Quez Coffee Co. — Auto-Generated`,
-  });
-};
-
 // ── Out-of-Range Alert Email (immediate, before submission) ──
 export const sendOutOfRangeAlert = async ({ operator, location, item, value, acceptableRange, section }) => {
   const { ownerEmail } = getCredentials();

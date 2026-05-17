@@ -166,3 +166,19 @@ body::before {
   .quez-clock-period { display: none !important; }
   .quez-clock-pill   { padding: 4px 9px !important; font-size: 13px !important; }
 }
+
+/* ── Hero card responsive grid: 3 columns on tablet+, stacks on phone ── */
+.quez-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: rgba(212, 175, 55, 0.20);
+}
+.quez-hero-grid > * {
+  background: #111;
+}
+@media (max-width: 720px) {
+  .quez-hero-grid {
+    grid-template-columns: 1fr;
+  }
+}

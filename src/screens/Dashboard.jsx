@@ -13,8 +13,6 @@ import OwnerDashboard from './OwnerDashboard';
 import {
   getTrainingRecord,
   getActiveOrders,
-  hasOpenPunchToday,
-  loadTodayClockRecords,
   isDailyChecklistSubmittedToday,
   loadChecklistState,
   isWeeklyChecklistDue,
@@ -26,24 +24,22 @@ import {
   isAnnualChecklistDue,
   isAnnualSubmittedThisYear,
   getMyDrinkCountToday,
-  getCurrentlyClockedIn,
-  getUpcomingShiftsFor,
   getSeasonalDrink,
   getTodayLocation,
+  getTodayLocationUpdatedAt,
   getEightySixed,
   getLatestHandoffNote,
   postHandoffNote,
   getDailyGoal,
   getCurrentStreak,
   getMyWeekStats,
-  getMyPendingSwaps,
+  getMyRecentDrinks,
   getLowStockItems,
   getEmployees,
   fetchWeather,
   weatherCodeToIcon,
   weatherDrinkSuggestion,
   getBirthdaysThisWeek,
-  getMyPayPeriodStats,
   getMyAchievements,
   getPlaylistUrl,
   getMyHomeLayout,
@@ -51,7 +47,9 @@ import {
   moveItem,
 } from '../utils/storage';
 import { getTodayBrandStandard } from '../data/brandStandards';
-import { fmtClock, fmtShiftTime as fmtShiftTimeShared, fmtRelTime as fmtRelTimeShared } from '../utils/timeFormat';
+import { drinkRecipes } from '../data/drinkRecipes';
+import { getModLabel } from '../data/drinkModifiers';
+import { fmtRelTime as fmtRelTimeShared } from '../utils/timeFormat';
 
 function todayLong(lang) {
   return new Date().toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', {
@@ -59,28 +57,40 @@ function todayLong(lang) {
   });
 }
 
-// Canonical "h:mm am" — see src/utils/timeFormat.js
-const fmtTime = (iso) => iso ? fmtClock(iso) : '—';
-const fmtShiftTime = fmtShiftTimeShared;
-
 // ── Default card order for each dashboard ──
 function getShiftDefaultOrder(isLead) {
+  // Hero (briefing) leads. Mega-stat next (primary tap target → Orders).
+  // Daily Checklist link sits above quick actions so a pending checklist is
+  // impossible to miss. My Last 5 sits high for mid-rush recall per the
+  // simulated converged spec. Goal/streak is demoted to a compact chip.
+  //
+  // REMOVED from default: weather (hidden), drinkGuideLink (in primary nav
+  // for baristas now), ordersLink (duplicates the mega-stat tap target).
   const base = [
-    'weather', 'birthdays', 'briefing', 'brandStandard',
-    'stats', 'goal', 'clockedIn', 'quickActions',
-    'pendingSwaps', 'weekStats', 'payPeriod', 'achievements',
-    'upcomingShifts',
-    'dailyChecklistLink', 'ordersLink', 'drinkGuideLink',
+    'briefing',
+    'megaStat',
+    'barTotal',
+    'dailyChecklistLink',
+    'myRecentDrinks',
+    'quickActions',
+    'brandStandard',
+    'goal',
+    'birthdays',
+    'weekStats',
+    'achievements',
   ];
   if (isLead) {
-    base.splice(8, 0, 'lowStock');     // surface low-stock high for leads
+    // Low-stock should be the FIRST card a lead sees after the hero — it's
+    // their reason for opening the dashboard. Periodic link goes at the end
+    // (red-bordered when due, so it self-promotes).
+    base.splice(2, 0, 'lowStock');
     base.push('periodicLink');
   }
   return base;
 }
 
 function getTraineeDefaultOrder() {
-  return ['trainerCard', 'brandStandard', 'trainingProgress', 'drinkGuideLink'];
+  return ['trainingProgress', 'practiceRound', 'trainerCard', 'drinkGuideLink', 'brandStandard'];
 }
 
 function getTimeOfDayGreeting(lang = 'en') {
@@ -257,6 +267,27 @@ function TraineeDashboard({ user, language }) {
                 </button>
               </div>
             ),
+            practiceRound: () => (
+              <button
+                style={S.practiceCard}
+                onClick={() => !editMode && navigate('orders')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 28 }}>🎯</span>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={S.linkTitle}>
+                      {lang === 'es' ? 'Ronda de Práctica' : 'Practice Round'}
+                    </div>
+                    <div style={S.linkSub}>
+                      {lang === 'es'
+                        ? 'Pedidos simulados — no cuentan en reportes. Práctica honesta.'
+                        : "Simulated orders — won't count toward reports. Drill freely."}
+                    </div>
+                  </div>
+                  <span style={S.chev}>›</span>
+                </div>
+              </button>
+            ),
             drinkGuideLink: () => (
               <button style={S.linkCard} onClick={() => !editMode && navigate('drinkGuide')}>
                 <span style={S.linkIcon}>☕</span>
@@ -344,33 +375,30 @@ function ShiftDashboard({ user, language }) {
   const lang = language || 'en';
   const isLead = user?.role === 'leadBarista';
 
-  const [todayPunch, setTodayPunch] = useState(null);
   const [openOrderCount, setOpenOrderCount] = useState(0);
   const [myDrinksToday, setMyDrinksToday] = useState(0);
-  const [clockedInList, setClockedInList] = useState([]);
-  const [upcomingShifts, setUpcomingShifts] = useState([]);
-  const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistSubmitted, setChecklistSubmitted] = useState(false);
   const [periodicAlerts, setPeriodicAlerts] = useState({ weekly: false, monthly: false, quarterly: false, annual: false });
   // Pre-shift briefing data
   const [seasonal, setSeasonal] = useState('');
   const [location, setLocation] = useState('');
+  const [locationUpdatedAt, setLocationUpdatedAt] = useState(null);
   const [eightySixed, setEightySixed] = useState([]);
   const [handoffNote, setHandoffNote] = useState(null);
-  // Goal + week stats + pending swaps + low-stock
+  const [myRecentDrinks, setMyRecentDrinks] = useState([]);
+  const [recipeModal, setRecipeModal] = useState(null);    // { drink, size, prep, modifiers } for tap-to-recipe
+  // Goal + week stats + low-stock
   const [dailyGoal, setDailyGoalState] = useState(0);
   const [todayDrinkTotal, setTodayDrinkTotal] = useState(0);
   const [streak, setStreak] = useState(0);
   const [weekStats, setWeekStats] = useState({ drinks: 0, hours: 0, drinksPerHour: 0 });
-  const [pendingSwaps, setPendingSwaps] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   // Hand-off modal
   const [handoffModalOpen, setHandoffModalOpen] = useState(false);
   const [handoffDraft, setHandoffDraft] = useState('');
-  // Weather, birthdays, pay period, achievements, playlist
+  // Weather, birthdays, achievements, playlist
   const [weather, setWeather] = useState(null);
   const [birthdays, setBirthdays] = useState([]);
-  const [pay, setPay] = useState({ hours: 0, wage: 0, estimated: 0, onShift: false });
   const [achievements, setAchievements] = useState([]);
   const [playlistUrl, setPlaylistUrlState] = useState('');
   // Layout editor
@@ -379,29 +407,23 @@ function ShiftDashboard({ user, language }) {
 
   const load = useCallback(() => {
     if (!user) return;
-    const punches = loadTodayClockRecords();
-    const mine = punches.find((p) => p.employeeId === user.id);
-    setTodayPunch(mine || null);
     setOpenOrderCount(getActiveOrders().length);
     setMyDrinksToday(getMyDrinkCountToday(user.name));
-    setClockedInList(getCurrentlyClockedIn());
-    setUpcomingShifts(getUpcomingShiftsFor(user.id, 14).slice(0, 3));
-    setChecklistOpen(hasOpenPunchToday(user.id));
     setChecklistSubmitted(isDailyChecklistSubmittedToday());
     // Briefing
     setSeasonal(getSeasonalDrink());
     setLocation(getTodayLocation());
+    setLocationUpdatedAt(getTodayLocationUpdatedAt());
     setEightySixed(getEightySixed());
     setHandoffNote(getLatestHandoffNote());
-    // Goal + week + pending
+    // Goal + week
     setDailyGoalState(getDailyGoal());
     const log = (() => { try { return JSON.parse(localStorage.getItem(`quez_drink_log_${dateKeyCompactToday()}`) || '[]'); } catch { return []; }})();
     setTodayDrinkTotal(log.length);
-    setStreak(getCurrentStreak());
+    setStreak(getCurrentStreak(user.id));
     setWeekStats(getMyWeekStats(user.name, user.id));
-    setPendingSwaps(getMyPendingSwaps(user.id));
+    setMyRecentDrinks(getMyRecentDrinks(user.name, 5));
     setBirthdays(getBirthdaysThisWeek());
-    setPay(getMyPayPeriodStats(user.id));
     setAchievements(getMyAchievements(user.id, user.name));
     setPlaylistUrlState(getPlaylistUrl());
     if (isLead) {
@@ -426,6 +448,14 @@ function ShiftDashboard({ user, language }) {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // Tight poll of open-order count — the mega-stat is the dashboard's
+  // headline number; the 60-second load() refresh felt stale. Reads only
+  // the active orders array, doesn't touch the rest of the dashboard data.
+  useEffect(() => {
+    const id = setInterval(() => setOpenOrderCount(getActiveOrders().length), 5000);
+    return () => clearInterval(id);
+  }, []);
+
   // Also load fresh data when the screen mounts (covers nav-back / HMR)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
@@ -437,7 +467,9 @@ function ShiftDashboard({ user, language }) {
     setLayoutState(saved || { order: getShiftDefaultOrder(isLead), hidden: [] });
   }, [user, isLead]);
 
-  const PINNED = ['ordersLink', 'dailyChecklistLink'];
+  // dailyChecklistLink is pinned — too operationally important to be hideable.
+  // (Old PINNED also included ordersLink; that card is gone, mega-stat replaces it.)
+  const PINNED = ['dailyChecklistLink'];
 
   const updateLayout = (next) => {
     setLayoutState(next);
@@ -561,42 +593,151 @@ function ShiftDashboard({ user, language }) {
                 </div>
               </div>
             ),
-            briefing: () => (location || seasonal || eightySixed.length > 0 || handoffNote) && (
-              <div style={S.briefingCard}>
-                <div style={S.briefingLabel}>{lang === 'es' ? 'Resumen del Turno' : 'Pre-Shift Briefing'}</div>
-                {location && (
-                  <div style={S.briefingRow}>
-                    <span style={S.briefingIcon}>📍</span>
-                    <span style={S.briefingText}>
-                      <b>{lang === 'es' ? 'Hoy' : 'Today'}:</b> {location}
-                    </span>
+            briefing: () => {
+              // Always render — each column shows a positive empty state
+              // ("Nothing — full menu", "No note — all clear") so a fresh
+              // dashboard tells the user "we're in good shape today" rather
+              // than disappearing.
+              const locationStale = locationUpdatedAt
+                && (Date.now() - new Date(locationUpdatedAt).getTime()) > 12 * 60 * 60 * 1000;
+              return (
+                <div className="quez-hero-grid" style={S.heroCard}>
+                  {/* Col 1 — 86'd first (most operationally urgent) */}
+                  <div style={{ ...S.heroCol, ...(eightySixed.length > 0 ? S.heroCol86 : {}) }}>
+                    <div style={S.heroColLabel}>{lang === 'es' ? '86\'D HOY' : '86\'D TODAY'}</div>
+                    {eightySixed.length > 0 ? (
+                      <div style={{ ...S.heroColBody, color: '#FFB3B3', fontWeight: 700 }}>
+                        {eightySixed.map((m) => m.name).join(', ')}
+                      </div>
+                    ) : (
+                      <div style={{ ...S.heroColBody, color: '#6a6a6a' }}>
+                        {lang === 'es' ? 'Nada — menú completo' : 'Nothing — full menu'}
+                      </div>
+                    )}
                   </div>
-                )}
-                {seasonal && (
-                  <div style={S.briefingRow}>
-                    <span style={S.briefingIcon}>🌟</span>
-                    <span style={S.briefingText}>
-                      <b>{lang === 'es' ? 'Temporada' : 'This season'}:</b> {seasonal}
-                    </span>
-                  </div>
-                )}
-                {eightySixed.length > 0 && (
-                  <div style={{ ...S.briefingRow, background: 'rgba(224,82,82,0.10)', border: '1px solid #E05252', borderRadius: 7, padding: '7px 10px' }}>
-                    <span style={S.briefingIcon}>⚠</span>
-                    <span style={S.briefingText}>
-                      <b style={{ color: '#FFB3B3' }}>{lang === 'es' ? '86\'D' : '86\'D'}:</b>{' '}
-                      {eightySixed.map((m) => m.name).join(', ')}
-                    </span>
-                  </div>
-                )}
-                {handoffNote && (
-                  <div style={S.handoffNote}>
-                    <div style={S.handoffMeta}>
-                      📝 {lang === 'es' ? 'De' : 'From'} {handoffNote.byName} · {fmtRelTime(handoffNote.at)}
+                  {/* Col 2 — Where's Quez (with stale flag) */}
+                  <div style={{ ...S.heroCol, ...(locationStale ? S.heroColStale : {}) }}>
+                    <div style={S.heroColLabel}>
+                      📍 {lang === 'es' ? 'HOY EN' : 'TODAY AT'}
+                      {locationStale && <span style={S.heroStaleHint}> · {lang === 'es' ? 'desactualizado' : 'stale'}</span>}
                     </div>
-                    <div style={S.handoffText}>"{handoffNote.text}"</div>
+                    <div style={S.heroColBody}>{location || (lang === 'es' ? 'Sin ubicación' : 'No location set')}</div>
+                    {seasonal && (
+                      <div style={S.heroColSub}>🌟 {seasonal}</div>
+                    )}
                   </div>
-                )}
+                  {/* Col 3 — Note for next shift (latest hand-off) */}
+                  <div style={S.heroCol}>
+                    <div style={S.heroColLabel}>📝 {lang === 'es' ? 'NOTA DE TURNO' : 'SHIFT NOTE'}</div>
+                    {handoffNote ? (
+                      <>
+                        <div style={S.heroColBody}>"{handoffNote.text}"</div>
+                        <div style={S.heroColSub}>— {handoffNote.byName} · {fmtRelTime(handoffNote.at)}</div>
+                      </>
+                    ) : (
+                      <div style={{ ...S.heroColBody, color: '#6a6a6a', fontStyle: 'italic' }}>
+                        {lang === 'es' ? 'Sin nota — todo limpio' : 'No note — all clear'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            },
+            megaStat: () => (
+              <button style={S.megaStatBtn} onClick={() => !editMode && navigate('orders')}>
+                <div style={S.megaStatNum}>{openOrderCount}</div>
+                <div style={S.megaStatLbl}>
+                  {openOrderCount === 1
+                    ? (lang === 'es' ? 'pedido en la cola' : 'order on deck')
+                    : (lang === 'es' ? 'pedidos en la cola' : 'orders on deck')}
+                </div>
+                <div style={S.megaStatSub}>
+                  {lang === 'es' ? 'toca para abrir la cola' : 'tap to open queue'} ›
+                </div>
+              </button>
+            ),
+            // Bar-wide drinks-served-today tile. Trish's #1 ask after a week
+            // of use — barista-personal count wasn't what she needed; she
+            // wanted the whole-trailer total at a glance.
+            barTotal: () => (
+              <div style={S.barTotalCard}>
+                <div style={S.barTotalLeft}>
+                  <div style={S.barTotalNum}>{todayDrinkTotal}</div>
+                  <div style={S.barTotalLbl}>
+                    {lang === 'es' ? 'bebidas hoy · barra completa' : 'drinks today · whole bar'}
+                  </div>
+                </div>
+                <div style={S.barTotalRight}>
+                  <div style={S.barTotalMine}>
+                    {lang === 'es' ? 'mías' : 'mine'}: <b style={{ color: '#D4AF37' }}>{myDrinksToday}</b>
+                  </div>
+                  {dailyGoal > 0 && (
+                    <div style={S.barTotalMine}>
+                      {lang === 'es' ? 'meta' : 'goal'}: <b style={{ color: '#888' }}>{dailyGoal}</b>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ),
+            myRecentDrinks: () => myRecentDrinks.length > 0 && (
+              <div style={S.miniCard}>
+                <div style={S.miniLabel}>
+                  {lang === 'es'
+                    ? `Mis Últimas ${myRecentDrinks.length}`
+                    : `My Last ${myRecentDrinks.length} ${myRecentDrinks.length === 1 ? 'Drink' : 'Drinks'}`}
+                  <span style={{ marginLeft: 8, color: '#666', fontWeight: 400, fontSize: 10, fontStyle: 'italic' }}>
+                    {lang === 'es' ? 'toca para ver receta' : 'tap to view recipe'}
+                  </span>
+                </div>
+                {myRecentDrinks.map((d, i) => {
+                  const mods = (d.modifiers || []).filter((m) => !m.startsWith('__custom__:'));
+                  const customNote = (d.modifiers || []).find((m) => m.startsWith('__custom__:'));
+                  const customText = customNote ? customNote.slice('__custom__:'.length) : '';
+                  return (
+                    <button
+                      key={d.orderId + '_' + i}
+                      onClick={() => {
+                        if (editMode) return;
+                        const drink = drinkRecipes.find((dr) => dr.id === d.drinkId);
+                        if (drink) setRecipeModal({ drink, size: d.size, prep: d.prepType, modifiers: d.modifiers || [], note: d.note || '' });
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: '1px solid #1a1a1a',
+                        padding: '7px 2px',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        color: '#F5F0E8',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ color: '#ddd', fontSize: 13, fontWeight: 600 }}>{d.drinkName}</span>
+                          <span style={{ color: '#666', fontSize: 11, marginLeft: 6 }}>· {d.size}</span>
+                          <span style={{
+                            color: '#888', fontSize: 10, marginLeft: 6,
+                            textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700,
+                          }}>
+                            {d.prepType}
+                          </span>
+                        </div>
+                        <span style={{ color: '#888', fontSize: 11, flexShrink: 0 }}>{fmtRelTime(d.completedAt)}</span>
+                      </div>
+                      {(mods.length > 0 || customText || d.note) && (
+                        <div style={{ marginTop: 3, color: '#999', fontSize: 11, fontStyle: 'italic', lineHeight: 1.35 }}>
+                          {mods.map((m) => getModLabel(m, lang)).join(' · ')}
+                          {mods.length > 0 && (customText || d.note) ? ' · ' : ''}
+                          {customText}
+                          {customText && d.note ? ' · ' : ''}
+                          {d.note ? `📝 ${d.note}` : ''}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             ),
             brandStandard: () => (
@@ -607,21 +748,14 @@ function ShiftDashboard({ user, language }) {
                 </span>
               </div>
             ),
+            // Old stats row replaced by megaStat above. Kept here only so
+            // legacy saved layouts still resolve — renders the "my drinks
+            // today" stat compactly.
             stats: () => (
-              <div style={S.statsRow}>
-                <div style={S.statCard}>
-                  <div style={S.statLabel}>{lang === 'es' ? 'Mi Entrada' : 'My Clock-in'}</div>
-                  <div style={S.statValue}>{fmtTime(todayPunch?.clockInTime)}</div>
-                </div>
-                <div style={S.statCard}>
-                  <div style={S.statLabel}>{lang === 'es' ? 'Pedidos abiertos' : 'Open orders'}</div>
-                  <div style={{ ...S.statValue, color: openOrderCount > 0 ? '#D4AF37' : '#F5F0E8' }}>
-                    {openOrderCount}
-                  </div>
-                </div>
-                <div style={S.statCard}>
-                  <div style={S.statLabel}>{lang === 'es' ? 'Mis bebidas hoy' : 'My drinks today'}</div>
-                  <div style={S.statValue}>{myDrinksToday}</div>
+              <div style={S.miniCard}>
+                <div style={S.miniLabel}>{lang === 'es' ? 'Mis Bebidas Hoy' : 'My Drinks Today'}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#D4AF37', fontFamily: 'Georgia, serif' }}>
+                  {myDrinksToday}
                 </div>
               </div>
             ),
@@ -639,24 +773,8 @@ function ShiftDashboard({ user, language }) {
                 </div>
               </div>
             ),
-            clockedIn: () => clockedInList.length > 0 && (
-              <div style={S.miniCard}>
-                <div style={S.miniLabel}>{lang === 'es' ? 'En el reloj ahora' : 'Clocked in right now'}</div>
-                <div style={S.miniRow}>
-                  {clockedInList.map((p) => (
-                    <span key={p.employeeId} style={S.miniPill}>
-                      <span style={S.miniDot} /> {p.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ),
             quickActions: () => (
               <div style={S.quickRow}>
-                <button style={S.quickBtn} onClick={() => navigate('shiftSwaps')}>
-                  <span style={S.quickIcon}>🔄</span>
-                  <span style={S.quickLabel}>{lang === 'es' ? 'Cambio' : 'Swap'}</span>
-                </button>
                 <button style={S.quickBtn} onClick={() => navigate('wasteLog')}>
                   <span style={S.quickIcon}>🗑</span>
                   <span style={S.quickLabel}>{lang === 'es' ? 'Desperdicio' : 'Waste'}</span>
@@ -669,60 +787,17 @@ function ShiftDashboard({ user, language }) {
                 )}
                 <button style={S.quickBtn} onClick={() => setHandoffModalOpen(true)}>
                   <span style={S.quickIcon}>📝</span>
-                  <span style={S.quickLabel}>{lang === 'es' ? 'Hand-off' : 'Hand-off'}</span>
+                  <span style={S.quickLabel}>{lang === 'es' ? 'Nota Turno' : 'Note for next shift'}</span>
                 </button>
               </div>
             ),
-            pendingSwaps: () => pendingSwaps.length > 0 && (
-              <div style={S.miniCard}>
-                <div style={S.miniLabel}>{lang === 'es' ? 'Mis Solicitudes Pendientes' : 'My Pending Requests'}</div>
-                {pendingSwaps.map((r) => (
-                  <div key={r.id} style={S.shiftLine}>
-                    <span style={{ color: '#D4AF37' }}>
-                      {r.type === 'day_off' ? (lang === 'es' ? 'Día libre' : 'Day off') : (lang === 'es' ? 'Dejar turno' : 'Drop shift')}
-                    </span>
-                    <span style={{ color: '#ddd' }}>
-                      {new Date(r.dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ),
-            weekStats: () => (weekStats.drinks > 0 || weekStats.hours > 0) && (
+            weekStats: () => weekStats.drinks > 0 && (
               <div style={S.miniCard}>
                 <div style={S.miniLabel}>{lang === 'es' ? 'Mi Semana' : 'My Week So Far'}</div>
                 <div style={S.weekStatsRow}>
                   <div style={S.weekStat}>
                     <div style={S.weekStatNum}>{weekStats.drinks}</div>
                     <div style={S.weekStatLbl}>{lang === 'es' ? 'bebidas' : 'drinks'}</div>
-                  </div>
-                  <div style={S.weekStat}>
-                    <div style={S.weekStatNum}>{weekStats.hours}</div>
-                    <div style={S.weekStatLbl}>{lang === 'es' ? 'horas' : 'hours'}</div>
-                  </div>
-                  <div style={S.weekStat}>
-                    <div style={S.weekStatNum}>{weekStats.drinksPerHour || '—'}</div>
-                    <div style={S.weekStatLbl}>{lang === 'es' ? 'por hora' : 'per hr'}</div>
-                  </div>
-                </div>
-              </div>
-            ),
-            payPeriod: () => pay.wage > 0 && (pay.hours > 0 || pay.onShift) && (
-              <div style={S.miniCard}>
-                <div style={S.miniLabel}>{lang === 'es' ? 'Este Período de Pago' : 'This Pay Period'}</div>
-                <div style={S.payRow}>
-                  <div style={S.payStat}>
-                    <div style={S.payNum}>{pay.hours}h</div>
-                    <div style={S.payLbl}>{lang === 'es' ? 'horas' : 'hours'}</div>
-                  </div>
-                  <div style={{ width: 1, background: '#2A2A2A' }} />
-                  <div style={S.payStat}>
-                    <div style={S.payNumGold}>${pay.estimated.toFixed(2)}</div>
-                    <div style={S.payLbl}>
-                      {pay.onShift
-                        ? (lang === 'es' ? 'en curso' : 'in progress')
-                        : (lang === 'es' ? 'estimado' : 'estimated')}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -740,83 +815,76 @@ function ShiftDashboard({ user, language }) {
                 </div>
               </div>
             ),
+            // LOW STOCK = AMBER (money-bleeding, not shutdown-grade).
+            // Numeric values rounded for display — raw inventory may hold
+            // fractional units like 2.987 gal from deduction; show 3.0.
             lowStock: () => isLead && lowStock.length > 0 && (
-              <div style={S.miniCard}>
+              <div style={{ ...S.miniCard, border: '1px solid rgba(255,184,74,0.45)', background: 'rgba(255,184,74,0.04)' }}>
                 <div style={S.miniLabel}>
-                  <span style={{ color: '#E05252' }}>⚠ {lang === 'es' ? 'Stock Bajo' : 'Low Stock'}</span>
+                  <span style={{ color: '#FFB84A' }}>⚠ {lang === 'es' ? 'Stock Bajo' : 'Low Stock'}</span>
                 </div>
-                {lowStock.map((i) => (
-                  <div key={i.id} style={S.shiftLine}>
-                    <span style={{ color: '#ddd' }}>{i.name}</span>
-                    <span style={{ color: '#E05252' }}>{i.onHand}/{i.par} {i.unit}</span>
-                  </div>
-                ))}
+                {lowStock.map((i) => {
+                  const onHand = Number.isInteger(i.onHand) ? i.onHand : Math.round((i.onHand ?? 0) * 10) / 10;
+                  return (
+                    <div key={i.id} style={S.shiftLine}>
+                      <span style={{ color: '#ddd' }}>{i.name}</span>
+                      <span style={{ color: '#FFB84A' }}>{onHand}/{i.par} {i.unit}</span>
+                    </div>
+                  );
+                })}
               </div>
             ),
-            upcomingShifts: () => upcomingShifts.length > 0 && (
-              <div style={S.miniCard}>
-                <div style={S.miniLabel}>{lang === 'es' ? 'Mis Próximos Turnos' : 'My Upcoming Shifts'}</div>
-                {upcomingShifts.map((s) => (
-                  <div key={s.id} style={S.shiftLine}>
-                    <span style={{ color: '#D4AF37', fontWeight: 700 }}>
-                      {new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    </span>
-                    <span style={{ color: '#ddd' }}>{fmtShiftTime(s.start)} – {fmtShiftTime(s.end)}</span>
-                  </div>
-                ))}
-              </div>
-            ),
+            // DAILY CHECKLIST = RED border when pending (regulatory; shutdown-grade).
             dailyChecklistLink: () => (
-              <button style={S.linkCard} onClick={() => !editMode && navigate('dailyChecklist')}>
+              <button
+                style={{
+                  ...S.linkCard,
+                  ...(!checklistSubmitted ? { border: '2px solid #E05252', background: 'rgba(224,82,82,0.04)' } : {}),
+                }}
+                onClick={() => !editMode && navigate('dailyChecklist')}
+              >
                 <span style={S.linkIcon}>☑</span>
                 <div style={{ flex: 1, textAlign: 'left' }}>
-                  <div style={S.linkTitle}>{lang === 'es' ? 'Lista Diaria' : 'Daily Checklist'}</div>
+                  <div style={{ ...S.linkTitle, ...(!checklistSubmitted ? { color: '#FFB3B3' } : {}) }}>
+                    {lang === 'es' ? 'Lista Diaria' : 'Daily Checklist'}
+                  </div>
                   <div style={S.linkSub}>
                     {checklistSubmitted
-                      ? (lang === 'es' ? 'Enviada hoy' : 'Submitted today')
-                      : (lang === 'es' ? 'Pendiente — apertura, medio servicio, cierre' : 'Pending — open, mid, close')}
-                  </div>
-                </div>
-                {!checklistSubmitted && checklistOpen && <span style={S.dotAlert} />}
-                <span style={S.chev}>›</span>
-              </button>
-            ),
-            ordersLink: () => (
-              <button style={S.linkCard} onClick={() => !editMode && navigate('orders')}>
-                <span style={S.linkIcon}>🧾</span>
-                <div style={{ flex: 1, textAlign: 'left' }}>
-                  <div style={S.linkTitle}>{lang === 'es' ? 'Tomar / Cola' : 'Take Order / Queue'}</div>
-                  <div style={S.linkSub}>
-                    {openOrderCount > 0
-                      ? (lang === 'es' ? `${openOrderCount} en cola` : `${openOrderCount} in queue`)
-                      : (lang === 'es' ? 'Cola vacía' : 'Queue empty')}
+                      ? (lang === 'es' ? 'Enviada hoy ✓' : 'Submitted today ✓')
+                      : (lang === 'es' ? 'PENDIENTE — apertura, medio servicio, cierre' : 'PENDING — open, mid, close')}
                   </div>
                 </div>
                 <span style={S.chev}>›</span>
               </button>
             ),
-            drinkGuideLink: () => (
-              <button style={S.linkCard} onClick={() => !editMode && navigate('drinkGuide')}>
-                <span style={S.linkIcon}>☕</span>
-                <div style={{ flex: 1, textAlign: 'left' }}>
-                  <div style={S.linkTitle}>{lang === 'es' ? 'Guía de Bebidas' : 'Drink Guide'}</div>
-                  <div style={S.linkSub}>{lang === 'es' ? 'Recetas de las 15 bebidas' : 'Recipes for all 15 drinks'}</div>
-                </div>
-                <span style={S.chev}>›</span>
-              </button>
-            ),
+            // ordersLink + drinkGuideLink removed from barista CARDS — orders
+            // are reached via the mega-stat tap target; drink guide is now a
+            // primary nav tab. Saved layouts referencing these ids are
+            // silently dropped by the knownIds.filter() below.
+
+            // Periodic checklist link — same red-bordered treatment as the
+            // daily checklist when anything is due. Periodic submissions feed
+            // DIAL compliance and equipment-maintenance records, so a missed
+            // periodic is in the same shutdown-grade category as daily.
             periodicLink: () => isLead && (
-              <button style={S.linkCard} onClick={() => !editMode && navigate('periodicChecklists')}>
+              <button
+                style={{
+                  ...S.linkCard,
+                  ...(periodicDue ? { border: '2px solid #E05252', background: 'rgba(224,82,82,0.04)' } : {}),
+                }}
+                onClick={() => !editMode && navigate('periodicChecklists')}
+              >
                 <span style={S.linkIcon}>📅</span>
                 <div style={{ flex: 1, textAlign: 'left' }}>
-                  <div style={S.linkTitle}>{lang === 'es' ? 'Listas Periódicas' : 'Periodic Checklists'}</div>
+                  <div style={{ ...S.linkTitle, ...(periodicDue ? { color: '#FFB3B3' } : {}) }}>
+                    {lang === 'es' ? 'Listas Periódicas' : 'Periodic Checklists'}
+                  </div>
                   <div style={S.linkSub}>
                     {periodicDue
-                      ? (lang === 'es' ? 'Hay tareas pendientes' : 'Tasks due today')
-                      : (lang === 'es' ? 'Todo al día' : 'All current')}
+                      ? (lang === 'es' ? 'PENDIENTE — semanal · mensual · trimestral · anual' : 'PENDING — weekly · monthly · quarterly · annual')
+                      : (lang === 'es' ? 'Todo al día ✓' : 'All current ✓')}
                   </div>
                 </div>
-                {periodicDue && <span style={S.dotAlert} />}
                 <span style={S.chev}>›</span>
               </button>
             ),
@@ -937,6 +1005,86 @@ function ShiftDashboard({ user, language }) {
           </div>
         </div>
       )}
+
+      {/* Recipe modal — opened from "My Last 5 Drinks" tap; same build flow
+          as the Orders RECIPE button so mid-rush re-reference is one tap. */}
+      {recipeModal && (() => {
+        const { drink, size, prep, modifiers = [], note = '' } = recipeModal;
+        const ingredients = drink.ingredients?.[size] || [];
+        const steps = drink.buildSteps?.[prep] || [];
+        const visibleMods = modifiers.filter((m) => !m.startsWith('__custom__:'));
+        const customMods = modifiers
+          .filter((m) => m.startsWith('__custom__:'))
+          .map((m) => m.slice('__custom__:'.length));
+        return (
+          <div style={S.overlay} onClick={() => setRecipeModal(null)}>
+            <div style={{ ...S.modal, maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ color: '#D4AF37', fontSize: 18, marginBottom: 4 }}>✦</div>
+              <h3 style={{ color: '#F5F0E8', fontSize: 19, fontWeight: 700, margin: '0 0 6px' }}>{drink.name}</h3>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, background: '#222', border: '1px solid #333', borderRadius: 4, padding: '2px 6px', color: '#aaa' }}>{size}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid #555', borderRadius: 4, padding: '2px 6px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{prep}</span>
+                {drink.buildTime && <span style={{ color: '#888', fontSize: 12, marginLeft: 4 }}>⏱ {drink.buildTime}</span>}
+              </div>
+
+              {(visibleMods.length > 0 || customMods.length > 0 || note) && (
+                <div style={{ background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                  <div style={{ fontSize: 10, color: '#D4AF37', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 6 }}>
+                    {lang === 'es' ? 'Personalizaciones' : 'Customizations'}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {visibleMods.map((m) => (
+                      <span key={m} style={{ fontSize: 12, background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.35)', color: '#D4AF37', borderRadius: 5, padding: '2px 8px' }}>{getModLabel(m, lang)}</span>
+                    ))}
+                    {customMods.map((c, i) => (
+                      <span key={'c' + i} style={{ fontSize: 12, background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.35)', color: '#D4AF37', borderRadius: 5, padding: '2px 8px' }}>{c}</span>
+                    ))}
+                    {note && (
+                      <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid #444', color: '#ddd', borderRadius: 5, padding: '2px 8px', fontStyle: 'italic' }}>📝 {note}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 7 }}>
+                  {lang === 'es' ? 'Ingredientes' : 'Ingredients'}
+                </div>
+                {ingredients.map((ing, i) => (
+                  <div key={i} style={{ fontSize: 13, color: '#ddd', marginBottom: 4, lineHeight: 1.4 }}>
+                    <span style={{ color: '#D4AF37' }}>·</span> {ing}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 7 }}>
+                  {lang === 'es' ? 'Pasos' : 'Build Steps'}
+                </div>
+                {steps.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 13, color: '#ddd', lineHeight: 1.5 }}>
+                    <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.3)', color: '#D4AF37', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>{i + 1}</span>
+                    <span>{s}</span>
+                  </div>
+                ))}
+              </div>
+
+              {drink.tip && (
+                <div style={{ background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#ccc', lineHeight: 1.5, marginBottom: 14 }}>
+                  💡 {drink.tip}
+                </div>
+              )}
+
+              <button
+                style={{ width: '100%', padding: 11, background: '#D4AF37', color: '#0D0D0D', border: 'none', borderRadius: 8, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => setRecipeModal(null)}
+              >
+                {lang === 'es' ? 'Cerrar' : 'Close'}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1196,6 +1344,137 @@ const S = {
     padding: '14px 16px',
     marginBottom: 12,
   },
+
+  // ── HERO CARD ──────────────────────────────────────────────────────────
+  // Three columns on landscape tablet, stacks to single column on phone
+  // via the .quez-hero-grid class in App.css.
+  heroCard: {
+    background: '#111',
+    border: '1px solid rgba(212,175,55,0.40)',
+    borderRadius: 12,
+    padding: 0,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  heroCol: {
+    padding: '12px 14px',
+    minWidth: 0,
+  },
+  heroCol86: {
+    background: 'rgba(224,82,82,0.06)',
+  },
+  heroColStale: {
+    background: 'rgba(255,184,74,0.06)',
+  },
+  heroColLabel: {
+    fontSize: 10,
+    color: '#D4AF37',
+    letterSpacing: '0.12em',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  heroColBody: {
+    fontSize: 14,
+    color: '#F5F0E8',
+    lineHeight: 1.4,
+    fontWeight: 600,
+  },
+  heroColSub: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 4,
+    lineHeight: 1.4,
+  },
+  heroStaleHint: {
+    color: '#FFB84A',
+    fontWeight: 600,
+    fontStyle: 'italic',
+  },
+
+  // ── MEGA STAT ──────────────────────────────────────────────────────────
+  megaStatBtn: {
+    width: '100%',
+    background: 'linear-gradient(180deg, rgba(212,175,55,0.08), rgba(212,175,55,0.02) 70%)',
+    border: '1px solid rgba(212,175,55,0.45)',
+    borderRadius: 14,
+    padding: '20px 16px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    color: '#F5F0E8',
+    textAlign: 'center',
+    marginBottom: 12,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+  },
+  megaStatNum: {
+    fontSize: 56,
+    fontFamily: "'Playfair Display', Georgia, serif",
+    fontWeight: 700,
+    color: '#D4AF37',
+    lineHeight: 1,
+  },
+  megaStatLbl: {
+    fontSize: 13,
+    color: '#F5F0E8',
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    fontWeight: 700,
+    marginTop: 4,
+  },
+  megaStatSub: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+
+  // ── BAR TOTAL ──────────────────────────────────────────────────────────
+  barTotalCard: {
+    background: '#111',
+    border: '1px solid #2A2A2A',
+    borderRadius: 12,
+    padding: '14px 16px',
+    marginBottom: 12,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  barTotalLeft: {
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+  },
+  barTotalNum: {
+    fontSize: 32,
+    fontFamily: "'Playfair Display', Georgia, serif",
+    fontWeight: 700,
+    color: '#F5F0E8',
+    lineHeight: 1,
+  },
+  barTotalLbl: {
+    fontSize: 11,
+    color: '#888',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    fontWeight: 600,
+    marginTop: 4,
+  },
+  barTotalRight: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 3,
+    fontSize: 12,
+    color: '#aaa',
+  },
+  barTotalMine: {
+    fontSize: 12,
+    color: '#aaa',
+  },
   briefingLabel: {
     fontSize: 10,
     color: '#D4AF37',
@@ -1297,6 +1576,17 @@ const S = {
     gap: 14,
     marginBottom: 10,
     textAlign: 'left',
+  },
+  practiceCard: {
+    width: '100%',
+    background: 'linear-gradient(135deg, rgba(212,175,55,0.10), rgba(212,175,55,0.02) 70%)',
+    border: '1px solid rgba(212,175,55,0.50)',
+    borderRadius: 12,
+    padding: '14px 16px',
+    color: '#F5F0E8',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    marginBottom: 10,
   },
   linkIcon: { fontSize: 22, width: 32, textAlign: 'center', flexShrink: 0 },
   linkTitle: { fontSize: 15, fontWeight: 700, color: '#F5F0E8' },

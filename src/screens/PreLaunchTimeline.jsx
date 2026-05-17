@@ -124,6 +124,9 @@ export default function PreLaunchTimeline() {
     refresh();
   };
 
+  // Hard gate: this screen is owner-only. Managers (who otherwise share the
+  // Owner Dashboard) cannot view the pre-launch checklist. Belt-and-suspenders
+  // on top of the dashboard tile already being owner-gated.
   if (!isOwner) {
     return (
       <div style={S.screen}>
@@ -132,8 +135,21 @@ export default function PreLaunchTimeline() {
           <div style={S.headerTitle}>Pre-Launch Timeline</div>
           <div style={S.headerSub}>Owner only</div>
         </div>
-        <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
-          This checklist is owner-only.
+        <div style={{
+          padding: '60px 24px', textAlign: 'center',
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+        }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
+          <div style={{
+            fontFamily: "'Playfair Display', Georgia, serif",
+            fontSize: 20, color: '#D4AF37', marginBottom: 8,
+          }}>
+            Owner Only
+          </div>
+          <div style={{ color: '#888', fontSize: 14, maxWidth: 320, lineHeight: 1.6 }}>
+            The pre-launch timeline is restricted to the business owner.
+            Manager and barista roles don't have access to this checklist.
+          </div>
         </div>
       </div>
     );

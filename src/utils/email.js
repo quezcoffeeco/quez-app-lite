@@ -7,12 +7,9 @@ import emailjs from 'emailjs-com';
 import { loadFromStorage } from './storage';
 
 export const EMAIL_TYPES = {
-  CLOCK_IN: 'clock_in',
-  CLOCK_OUT: 'clock_out',
   CHECKLIST_SUBMISSION: 'checklist_submission',
   OUT_OF_RANGE_ALERT: 'out_of_range_alert',
   DRINK_COUNT_SUMMARY: 'drink_count_summary',
-  SCHEDULE: 'schedule',
   RECIPE_ISSUE: 'recipe_issue',
   TRAINING_COMPLETE: 'training_complete',
 };
@@ -56,41 +53,6 @@ function buildTemplateParams(type, data, ownerEmail) {
   };
 
   switch (type) {
-    case EMAIL_TYPES.CLOCK_IN:
-      return {
-        ...base,
-        subject: `[Quez] Clock-In — ${data.operator} — ${data.date}`,
-        body: [
-          'CLOCK-IN RECORD',
-          '─────────────────────────',
-          `Employee: ${data.operator}`,
-          `Role: ${data.role || 'Unknown'}`,
-          `Location: ${data.location}`,
-          `Date: ${data.date}`,
-          `Time: ${data.time}`,
-          '─────────────────────────',
-          'Quez Coffee Co. Operations Platform',
-        ].join('\n'),
-      };
-
-    case EMAIL_TYPES.CLOCK_OUT:
-      return {
-        ...base,
-        subject: `[Quez] Clock-Out — ${data.operator} — ${data.date}`,
-        body: [
-          'CLOCK-OUT RECORD',
-          '─────────────────────────',
-          `Employee: ${data.operator}`,
-          `Location: ${data.location}`,
-          `Date: ${data.date}`,
-          `Clock-In: ${data.clockInTime}`,
-          `Clock-Out: ${data.clockOutTime}`,
-          `Shift Duration: ${data.duration}`,
-          '─────────────────────────',
-          'Quez Coffee Co. Operations Platform',
-        ].join('\n'),
-      };
-
     case EMAIL_TYPES.OUT_OF_RANGE_ALERT:
       return {
         ...base,
@@ -147,14 +109,6 @@ function buildTemplateParams(type, data, ownerEmail) {
           '─────────────────────────',
           'Quez Coffee Co. Operations Platform',
         ].join('\n'),
-      };
-
-    case EMAIL_TYPES.SCHEDULE:
-      return {
-        to_email: data.recipients || ownerEmail,
-        reply_to: ownerEmail,
-        subject: `[Quez] Schedule — ${data.weekOf || data.date}`,
-        body: data.scheduleText || '(No schedule data)',
       };
 
     case EMAIL_TYPES.RECIPE_ISSUE:

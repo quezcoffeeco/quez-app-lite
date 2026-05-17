@@ -3,8 +3,6 @@ import { useApp } from '../context/AppContext';
 import {
   getActiveEmployees,
   getSettings,
-  recordClockIn,
-  hasOpenPunchToday,
   getPinLockout,
   setPinLockout,
   clearPinLockout,
@@ -16,7 +14,6 @@ import './LoginScreen.css';
 
 // Every role now requires PIN entry to sign in.
 const MAX_ATTEMPTS = 3;
-const CLOCK_IN_ROLES = ['manager', 'leadBarista', 'barista', 'trainee'];
  
 export default function LoginScreen() {
   const { login, language } = useApp();
@@ -28,19 +25,12 @@ export default function LoginScreen() {
   const [phase, setPhase] = useState('select');
   const [error, setError] = useState('');
   const [lockout, setLockoutState] = useState({ attempts: 0, lockedUntil: null });
-  const [currentTime, setCurrentTime] = useState(new Date());
   // Forced PIN-change flow (first login when pin === '0000' or mustChangePin is set)
   const [newPin, setNewPin]               = useState('');
   const [confirmPin, setConfirmPin]       = useState('');
   const [changeStep, setChangeStep]       = useState('enter'); // 'enter' | 'confirm'
   const [changeError, setChangeError]     = useState('');
   const [pendingEmployee, setPendingEmployee] = useState(null);
- 
-  // Live clock
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
  
   useEffect(() => {
     const active = getActiveEmployees();
@@ -62,16 +52,7 @@ export default function LoginScreen() {
   const selectedEmployee = employees.find(e => e.id === selectedEmployeeId) || null;
   const requiresPin = !!selectedEmployee; // every role uses PIN now
   const isLocked = lockout.lockedUntil !== null;
-  const needsClockIn = selectedEmployee && CLOCK_IN_ROLES.includes(selectedEmployee.role);
- 
-  // Show clock-in UI only if:
-  // - Employee tracks time AND
-  // - Has no punch at all today (not just open — if they signed out only earlier, no new punch shown)
-   const showClockIn = needsClockIn && selectedEmployee && !hasOpenPunchToday(selectedEmployee.id);
- 
-  const fmtTimeLong = (date) =>
-    date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
- 
+
   function handleEmployeeChange(e) {
     setSelectedEmployeeId(e.target.value);
     setPhase('select');
@@ -193,28 +174,12 @@ export default function LoginScreen() {
 
   function doLogin(employee) {
     setPhase('loading');
-    const clockInTime = new Date().toISOString();
     const sessionData = {
       id: employee.id,
       name: employee.name,
       role: employee.role,
       location: selectedLocation,
-      clockInTime,
     };
- 
-    // Clock-in punch: only for non-owner, only if no punch today
-    if (CLOCK_IN_ROLES.includes(employee.role) && !hasOpenPunchToday(employee.id)) {
-      recordClockIn({
-        employeeId: employee.id,
-        name: employee.name,
-        role: employee.role,
-        location: selectedLocation,
-        clockInTime,
-      });
-      // Clock-in email removed — now part of weekly time clock report
-      // sendClockInEmail is kept in emailjs.js for future use if needed
-    }
- 
     setPhase('success');
     setTimeout(() => login(sessionData), 1200);
   }
@@ -252,7 +217,6 @@ export default function LoginScreen() {
  
   const getButtonLabel = () => {
     if (requiresPin) return t('enterPin', language);
-    if (showClockIn) return 'Clock In & Sign In';
     return t('signIn', language);
   };
  
@@ -324,16 +288,6 @@ export default function LoginScreen() {
               <div className="ls-role-badge">
                 <span className="ls-role-dot" />
                 {roleLabel(selectedEmployee.role, language)}
-              </div>
-            )}
- 
-            {/* Live clock — only when clocking in */}
-            {showClockIn && (
-              <div className="ls-clockin-time">
-                <span className="ls-clockin-label">
-                  {language === 'es' ? 'Hora de entrada' : 'Clock-in time'}
-                </span>
-                <span className="ls-clockin-value">{fmtTimeLong(currentTime)}</span>
               </div>
             )}
  
