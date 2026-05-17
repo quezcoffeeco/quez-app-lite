@@ -1022,48 +1022,98 @@ export default function OrderScreen() {
           const itemCount = order.items.length;
           return (
             <div key={order.id} style={{ ...S.orderCard, opacity: 0.85 }}>
+              {/* 3-zone header mirrors the Queue tile: order # left,
+                  completion-time chip center (where the timer was on Queue),
+                  window pill right. */}
               <div style={S.orderHeader}>
-                <div>
-                  <div style={S.orderNumber}>#{order.number}</div>
-                  <div style={S.orderMeta}>
-                    {formatClock(order.createdAt)} → {formatClock(order.completedAt)} · {order.takenBy}
+                <div style={S.orderHeaderLeft}>
+                  <div style={S.orderNumber}>
+                    {lang === 'es' ? 'Pedido' : 'Order'} #{order.number}
                   </div>
                 </div>
-                <div style={S.progressTag}>
-                  {itemCount} {lang === 'es'
-                    ? (itemCount === 1 ? 'bebida' : 'bebidas')
-                    : (itemCount === 1 ? 'drink' : 'drinks')}
+                <div style={S.orderHeaderCenter}>
+                  <div style={S.completedPill}>
+                    ✓ {formatClock(order.completedAt)}
+                  </div>
+                </div>
+                <div style={S.orderHeaderRight}>
+                  {order.window && (() => {
+                    const styles = order.window === 'drive-thru' ? S.windowPillDrive
+                      : order.window === 'catering' ? S.windowPillCatering
+                      : S.windowPillWalk;
+                    const icon = order.window === 'drive-thru' ? '🚗'
+                      : order.window === 'catering' ? '🎂'
+                      : '🚶';
+                    const label = order.window === 'drive-thru'
+                      ? (lang === 'es' ? 'Auto-Servicio' : 'Drive Thru')
+                      : order.window === 'catering'
+                      ? (lang === 'es' ? 'Catering' : 'Catering')
+                      : (lang === 'es' ? 'Ventanilla' : 'Walk Up');
+                    return (
+                      <div style={{ ...S.windowPill, ...styles }}>
+                        {icon} <span style={{ marginLeft: 4 }}>{label}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
-              <div style={{ ...S.itemList, marginBottom: 10 }}>
+              {/* Sub-meta: customer name + drink count when >1. Mirrors the
+                  Queue tile minus the NEXT UP / stale signals. */}
+              {(order.orderNote || itemCount > 1) && (
+                <div style={S.orderSubMeta}>
+                  {order.orderNote && (
+                    <span style={{ ...S.nameEditChip, cursor: 'default' }} title={order.orderNote}>
+                      <span style={{ color: '#D4AF37', fontWeight: 700 }}>{order.orderNote}</span>
+                    </span>
+                  )}
+                  {itemCount > 1 && (
+                    <span style={S.progressTag}>
+                      {itemCount} {lang === 'es' ? 'bebidas' : 'drinks'}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div style={S.itemList}>
                 {order.items.map((it) => (
-                  <div key={it.itemId} style={{ ...S.queueItem, opacity: 0.85 }}>
-                    <span style={{ color: '#D4AF37', fontSize: 16, marginRight: 4 }}>✓</span>
+                  <div key={it.itemId} style={{
+                    ...S.queueItem,
+                    ...(it.built ? S.queueItemBuilt : {}),
+                  }}>
                     <div style={S.itemMain}>
                       <div style={S.itemTop}>
+                        <span style={{
+                          color: '#27AE60', fontSize: 16, marginRight: 6,
+                          display: 'inline-flex', alignItems: 'center',
+                        }}>✓</span>
                         <span style={{ ...S.sizePill, color: PREP_COLORS[it.prepType] }}>{it.size}</span>
                         <span style={{ ...S.prepPill, color: PREP_COLORS[it.prepType], borderColor: PREP_COLORS[it.prepType] }}>
                           {PREP_LABELS[it.prepType][lang]}
                         </span>
                       </div>
-                      <div style={S.itemName}>{it.drinkName}</div>
+                      <div style={{ ...S.itemName, textDecoration: 'line-through', color: '#666' }}>
+                        {it.drinkName}
+                      </div>
                       {(it.modifiers?.length > 0 || it.note) && (
-                        <div style={S.modsRow}>
-                          {(it.modifiers || []).map((mid) => (
-                            <span key={mid} style={S.modTag}>{getModLabel(mid, lang)}</span>
-                          ))}
-                          {it.note && <span style={S.noteTag}>📝 {it.note}</span>}
+                        <div style={S.modsFrame}>
+                          <span style={S.modsFrameLabel}>
+                            {lang === 'es' ? 'MODS' : 'MODS'}:
+                          </span>
+                          <div style={S.modsFrameContent}>
+                            {(it.modifiers || []).map((mid) => (
+                              <span key={mid} style={S.modTagBold}>{getModLabel(mid, lang)}</span>
+                            ))}
+                            {it.note && (
+                              <span style={S.noteTagBold}>📝 {it.note}</span>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
                   </div>
                 ))}
               </div>
-
-              {order.orderNote && (
-                <div style={S.orderNoteBanner}>📝 {order.orderNote}</div>
-              )}
 
               <button style={S.reopenBtn} onClick={() => handleRecallOrder(order)}>
                 ↻ {lang === 'es' ? 'Reabrir Pedido' : 'Reopen Order'}
@@ -2267,6 +2317,21 @@ const S = {
     fontVariantNumeric: 'tabular-nums',
     minWidth: 64,
     textAlign: 'center',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
+  // Recent tab: sits in the same center zone as the Queue timer pill, but
+  // shows the wall-clock completion time in green so the operator can see
+  // at a glance when the ticket was finished.
+  completedPill: {
+    background: 'rgba(39,174,96,0.10)',
+    border: '1px solid #27AE60',
+    color: '#27AE60',
+    borderRadius: 8,
+    padding: '5px 10px',
+    fontWeight: 700,
+    fontSize: 13,
+    fontVariantNumeric: 'tabular-nums',
     whiteSpace: 'nowrap',
     flexShrink: 0,
   },
