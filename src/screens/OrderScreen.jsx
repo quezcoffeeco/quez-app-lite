@@ -26,6 +26,7 @@ import {
   updateOrderNote,
   saveActiveOrders,
   logAudit,
+  getBuildTimeStats,
 } from '../utils/storage';
 
 const PREP_LABELS = {
@@ -82,14 +83,18 @@ const URGENCY_RED_S    = 300;
 function ageSeconds(createdAt) {
   return Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
 }
-function fmtAge(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 function urgencyTier(seconds) {
   if (seconds >= URGENCY_RED_S)    return 'red';
   if (seconds >= URGENCY_YELLOW_S) return 'yellow';
+  return 'green';
+}
+// Per-order urgency keyed off the order's build-time target. The barista has
+// something concrete to beat instead of a hidden global threshold. Falls
+// back to the old time-based tiers when no target is available.
+function urgencyTierByTarget(seconds, targetSec) {
+  if (!targetSec || targetSec <= 0) return urgencyTier(seconds);
+  if (seconds >= targetSec + 60) return 'red';
+  if (seconds >= targetSec)      return 'yellow';
   return 'green';
 }
 const URGENCY_COLOR = {
@@ -97,6 +102,38 @@ const URGENCY_COLOR = {
   yellow: '#FFB84A',
   red:    '#E05252',
 };
+
+// Day-one fallback when getBuildTimeStats has no history yet. Numbers picked
+// from real bar timing on a typical 12oz drink.
+const FALLBACK_TARGET_SEC = { espresso: 90, drip: 30, iced: 60, blended: 90 };
+
+// Slowest-prep target for an order. Hot prep splits into espresso vs drip via
+// the recipe's tags.usesEspresso flag so a 12oz drip coffee doesn't share a
+// 90-second target with a double-shot latte.
+function targetSecondsForOrder(order, baseline) {
+  const recipeIsEspresso = (drinkId) => {
+    const d = drinkRecipes.find((dr) => dr.id === drinkId);
+    return !!(d && d.tags && d.tags.usesEspresso);
+  };
+  const targets = (order.items || []).map((it) => {
+    let key = it.prepType;
+    if (key === 'hot') key = recipeIsEspresso(it.drinkId) ? 'espresso' : 'drip';
+    const fromBaseline = baseline?.byPrep?.[key]?.avgSec || 0;
+    return fromBaseline > 0 ? fromBaseline : (FALLBACK_TARGET_SEC[key] || 60);
+  });
+  return targets.length ? Math.max(...targets) : 0;
+}
+
+// "5:09 / 3:30" timer label. Target stays terse to fit the pill.
+function fmtTimerWithTarget(seconds, targetSec) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  const cur = `${m}:${s.toString().padStart(2, '0')}`;
+  if (!targetSec) return cur;
+  const tm = Math.floor(targetSec / 60);
+  const ts = targetSec % 60;
+  return `${cur} / ${tm}:${ts.toString().padStart(2, '0')}`;
+}
 
 // Shared AudioContext that persists across chime calls. iOS Safari blocks audio
 // before a user gesture has occurred — we unlock it via the first user click
@@ -174,12 +211,13 @@ export default function OrderScreen() {
   const [pickerMods, setPickerMods]   = useState([]);
   const [pickerNote, setPickerNote]   = useState('');
   const [activeOrders, setActiveOrders] = useState([]);
-  const [recipeModal, setRecipeModal] = useState(null);
+  // Inline recipe expansion on KDS tiles. Only one item can be expanded at a
+  // time across the whole queue — tapping another item's RECIPE swaps focus.
+  const [expandedItemId, setExpandedItemId] = useState(null);
   const [toast, setToast]             = useState(null);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [nameEditOrder, setNameEditOrder] = useState(null);  // order being inline-edited for orderNote
   const [nameEditDraft, setNameEditDraft] = useState('');
-  const [stepDone, setStepDone] = useState(() => new Set());  // trainee build-step check-off, ephemeral
   const [cancelModal, setCancelModal] = useState(null);   // order awaiting cancel reason
   const [cancelOtherText, setCancelOtherText] = useState('');
   // Catering order builder — owner/manager only. Line-item builder: each
@@ -519,6 +557,17 @@ export default function OrderScreen() {
     loadOrders();
   };
 
+  // Toggle visual "built" state on a single line — strikethrough so the
+  // barista doesn't double-build a drink on a multi-drink ticket. Cosmetic
+  // only: Mark Complete still works regardless of which lines are checked.
+  const toggleItemBuilt = (order, itemId) => {
+    const items = order.items.map((it) =>
+      it.itemId === itemId ? { ...it, built: !it.built } : it
+    );
+    updateOrderItems(order.id, items);
+    loadOrders();
+  };
+
   const handleCompleteOrder = (order) => {
     // Trainees can only complete practice orders. Real orders are read-only.
     if (isTrainee && !order.practice) {
@@ -596,17 +645,61 @@ export default function OrderScreen() {
     showToast(lang === 'es' ? `Pedido #${order.number} reabierto` : `Order #${order.number} reopened`);
   };
 
-  const openRecipe = (item) => {
+  // Inline recipe block — rendered inside the order tile so the barista can
+  // read the recipe without losing the order context (other items, modifiers,
+  // timer). No photo to keep the tile lean.
+  const renderInlineRecipe = (item) => {
     const drink = drinkRecipes.find((d) => d.id === item.drinkId);
-    if (!drink) return;
-    setStepDone(new Set());  // fresh check-off state per modal open (trainee)
-    setRecipeModal({
-      drink,
-      size: item.size,
-      prep: item.prepType,
-      modifiers: item.modifiers || [],
-      note: item.note || '',
+    if (!drink) return null;
+    const ingredients = drink.ingredients[item.size] || [];
+    const baseSteps = drink.buildSteps[item.prepType] || [];
+    const needsHoneyMix = hasColdHoneyMix({
+      drinkId: drink.id, prepType: item.prepType, modifiers: item.modifiers,
     });
+    const steps = needsHoneyMix
+      ? [
+          (lang === 'es'
+            ? '** PRIMERO: Mezcla la bomba extra de miel con espresso CALIENTE en taza separada hasta disolver. NO la pongas directamente sobre hielo. **'
+            : '** FIRST: Mix the extra honey pump with HOT espresso in a separate cup until dissolved. DO NOT pour directly onto ice. **'),
+          ...baseSteps,
+        ]
+      : baseSteps;
+    return (
+      <div style={S.inlineRecipe}>
+        <div style={S.inlineRecipeHeader}>
+          <span style={S.inlineRecipeTitle}>{drink.name}</span>
+          <span style={S.inlineRecipeMeta}>
+            ⏱ {drink.buildTime}
+          </span>
+        </div>
+        {ingredients.length > 0 && (
+          <div style={S.inlineRecipeBlock}>
+            <div style={S.inlineRecipeLabel}>
+              {lang === 'es' ? 'Ingredientes' : 'Ingredients'}
+            </div>
+            {ingredients.map((ing, i) => (
+              <div key={i} style={S.inlineRecipeIng}>
+                <span style={{ color: '#D4AF37' }}>·</span> {ing}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={S.inlineRecipeBlock}>
+          <div style={S.inlineRecipeLabel}>
+            {lang === 'es' ? 'Pasos' : 'Build Steps'}
+          </div>
+          {steps.map((s, i) => (
+            <div key={i} style={S.inlineRecipeStep}>
+              <span style={S.inlineRecipeStepNum}>{i + 1}</span>
+              <span style={{ color: '#ddd' }}>{s}</span>
+            </div>
+          ))}
+        </div>
+        {drink.tip && (
+          <div style={S.inlineRecipeTip}>💡 {drink.tip}</div>
+        )}
+      </div>
+    );
   };
 
   // ─── Render: Take Order ──────────────────────────────────────────────────
@@ -644,13 +737,31 @@ export default function OrderScreen() {
       );
     }
 
+    // Sort the queue oldest-first so the visual layout matches build order
+    // (top-left = build next). Real orders always come before practice; within
+    // each group, oldest createdAt wins. The first tile gets the NEXT UP badge.
+    const sortedActiveOrders = [...activeOrders].sort((a, b) => {
+      if (!!a.practice !== !!b.practice) return a.practice ? 1 : -1;
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+    const nextUpId = sortedActiveOrders.find((o) => !o.practice)?.id
+      || sortedActiveOrders[0]?.id;
+    // Pull the 7-day build-time baseline once per render — gives the timer
+    // pill a concrete target like "5:09 / 3:30" instead of an opaque urgency
+    // color. Cheap (localStorage read) so no need to memoize.
+    const buildBaseline = getBuildTimeStats(7);
+
     return (
       <div style={S.queueList}>
-        {activeOrders.map((order) => {
+        {sortedActiveOrders.map((order) => {
           const total = order.items.length;
           const hasSpecial = order.items.some(hasColdHoneyMix);
+          const isNextUp = order.id === nextUpId && sortedActiveOrders.length > 1;
+          const ageMin = Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000);
+          const isStale = ageMin >= 30;
           const age   = ageSeconds(order.createdAt);
-          const tier  = urgencyTier(age);
+          const targetSec = targetSecondsForOrder(order, buildBaseline);
+          const tier  = urgencyTierByTarget(age, targetSec);
           const tierColor = URGENCY_COLOR[tier];
           // Honey-cold-mix safety border takes precedence over age-based urgency.
           const urgencyBorder = !hasSpecial && tier !== 'green'
@@ -659,13 +770,17 @@ export default function OrderScreen() {
           return (
             <div key={order.id} style={{ ...S.orderCard, ...urgencyBorder, ...(hasSpecial ? S.orderCardSpecial : {}) }}>
               {hasSpecial && (
-                <div style={S.specialBanner}>
+                <div
+                  className={age < 5 ? 'quez-special-pulse' : undefined}
+                  style={S.specialBanner}
+                >
                   ⚠ {lang === 'es' ? 'PEDIDO ESPECIAL' : 'SPECIAL ORDER'} —{' '}
                   {lang === 'es' ? 'revisa la instrucción de miel' : 'see honey-mix step'}
                 </div>
               )}
+              {/* 3-zone header: order # (left), timer (center), window (right). */}
               <div style={S.orderHeader}>
-                <div>
+                <div style={S.orderHeaderLeft}>
                   <div style={{ ...S.orderNumber, ...(hasSpecial ? { color: '#FFB3B3' } : {}) }}>
                     {lang === 'es' ? 'Pedido' : 'Order'} #{order.number}
                     {order.window === 'catering' && new Date(order.createdAt).getTime() > Date.now() && (
@@ -674,30 +789,13 @@ export default function OrderScreen() {
                       </span>
                     )}
                   </div>
-                  <div style={S.orderMeta}>
-                    {formatClock(order.createdAt)}
-                    {' · '}
-                    {/* Only the name chip + pencil are tappable. Edits open the inline modal. */}
-                    <button
-                      onClick={() => {
-                        setNameEditOrder(order);
-                        setNameEditDraft(order.orderNote || '');
-                      }}
-                      style={S.nameEditChip}
-                      title={lang === 'es' ? 'Editar nombre' : 'Edit name'}
-                    >
-                      {order.orderNote
-                        ? <span style={{ color: '#D4AF37', fontWeight: 700 }}>{order.orderNote}</span>
-                        : <span style={{ color: '#666', fontStyle: 'italic' }}>{lang === 'es' ? 'sin nombre' : 'no name'}</span>
-                      }
-                      <span style={S.nameEditPencil}>✎</span>
-                    </button>
-                    {order.takenBy && order.takenBy !== 'PRACTICE' && order.takenBy !== 'DEMO' && <> · {order.takenBy}</>}
+                </div>
+                <div style={S.orderHeaderCenter}>
+                  <div style={{ ...S.timerPill, color: tierColor, borderColor: tierColor }}>
+                    ⏱ {fmtTimerWithTarget(age, targetSec)}
                   </div>
                 </div>
-                <div style={S.headerRight}>
-                  {/* Window pill: compact, inline next to the timer so the
-                      barista sees destination + age at a single glance. */}
+                <div style={S.orderHeaderRight}>
                   {order.window && (() => {
                     const styles = order.window === 'drive-thru' ? S.windowPillDrive
                       : order.window === 'catering' ? S.windowPillCatering
@@ -716,14 +814,45 @@ export default function OrderScreen() {
                       </div>
                     );
                   })()}
-                  <div style={{ ...S.timerPill, color: tierColor, borderColor: tierColor }}>
-                    ⏱ {fmtAge(age)}
-                  </div>
-                  <div style={S.progressTag}>
-                    {total} {lang === 'es' ? (total === 1 ? 'bebida' : 'bebidas') : (total === 1 ? 'drink' : 'drinks')}
-                  </div>
                 </div>
               </div>
+              {/* Meta line: NEXT UP badge, customer name, drink count when >1,
+                  stale-age warning when >30 min. Renders only when non-empty. */}
+              {(isNextUp || order.orderNote || total > 1 || isStale) && (
+                <div style={S.orderSubMeta}>
+                  {isNextUp && (
+                    <span style={S.nextUpBadge}>
+                      ◉ {lang === 'es' ? 'SIGUIENTE' : 'NEXT UP'}
+                    </span>
+                  )}
+                  {/* Customer name chip — only renders if there's a name. Pencil
+                      alone (no chip) appears when name is empty so the barista
+                      can still tap to add. */}
+                  <button
+                    onClick={() => {
+                      setNameEditOrder(order);
+                      setNameEditDraft(order.orderNote || '');
+                    }}
+                    style={order.orderNote ? S.nameEditChip : S.nameEditChipEmpty}
+                    title={lang === 'es' ? 'Editar nombre' : 'Edit name'}
+                  >
+                    {order.orderNote && (
+                      <span style={{ color: '#D4AF37', fontWeight: 700 }}>{order.orderNote}</span>
+                    )}
+                    <span style={S.nameEditPencil}>✎</span>
+                  </button>
+                  {total > 1 && (
+                    <span style={S.progressTag}>
+                      {total} {lang === 'es' ? 'bebidas' : 'drinks'}
+                    </span>
+                  )}
+                  {isStale && (
+                    <span style={S.staleBadge}>
+                      ⚠ {ageMin} {lang === 'es' ? 'min' : 'min ago'}
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div style={S.itemList}>
                 {order.items.map((it) => (
@@ -731,6 +860,7 @@ export default function OrderScreen() {
                     ...S.queueItem,
                     ...(hasColdHoneyMix(it) ? S.queueItemWarn : {}),
                     ...(it.priority ? S.queueItemPriority : {}),
+                    ...(it.built ? S.queueItemBuilt : {}),
                   }}>
                     <div style={S.itemMain}>
                       <div style={S.itemTop}>
@@ -745,6 +875,26 @@ export default function OrderScreen() {
                         >
                           {it.priority ? '★' : '☆'}
                         </button>
+                        {/* Built checkbox — visual strikethrough only. Mark Complete
+                            still completes the whole ticket regardless of which
+                            lines are checked off. Helps prevent double-builds. */}
+                        <button
+                          style={{
+                            background: it.built ? 'rgba(39,174,96,0.18)' : 'transparent',
+                            border: it.built ? '1px solid #27AE60' : '1px solid #444',
+                            color: it.built ? '#27AE60' : '#555',
+                            borderRadius: 5,
+                            width: 22, height: 22,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', fontSize: 13, fontWeight: 800,
+                            padding: 0, marginRight: 6, fontFamily: 'inherit',
+                          }}
+                          onClick={() => toggleItemBuilt(order, it.itemId)}
+                          title={lang === 'es' ? 'Marcar como hecho' : 'Mark as built'}
+                          aria-pressed={!!it.built}
+                        >
+                          {it.built ? '✓' : ''}
+                        </button>
                         <span style={{ ...S.sizePill, color: PREP_COLORS[it.prepType] }}>
                           {it.size}
                         </span>
@@ -752,17 +902,25 @@ export default function OrderScreen() {
                           {PREP_LABELS[it.prepType][lang]}
                         </span>
                       </div>
-                      <div style={S.itemName}>
+                      <div style={{
+                        ...S.itemName,
+                        ...(it.built ? { textDecoration: 'line-through', color: '#666' } : {}),
+                      }}>
                         {it.drinkName}
                       </div>
                       {(it.modifiers?.length > 0 || it.note) && (
-                        <div style={S.modsRow}>
-                          {(it.modifiers || []).map((mid) => (
-                            <span key={mid} style={S.modTag}>{getModLabel(mid, lang)}</span>
-                          ))}
-                          {it.note && (
-                            <span style={S.noteTag}>📝 {it.note}</span>
-                          )}
+                        <div style={S.modsFrame}>
+                          <span style={S.modsFrameLabel}>
+                            ⚠ {lang === 'es' ? 'MODS' : 'MODS'}:
+                          </span>
+                          <div style={S.modsFrameContent}>
+                            {(it.modifiers || []).map((mid) => (
+                              <span key={mid} style={S.modTagBold}>{getModLabel(mid, lang)}</span>
+                            ))}
+                            {it.note && (
+                              <span style={S.noteTagBold}>📝 {it.note}</span>
+                            )}
+                          </div>
                         </div>
                       )}
                       {hasColdHoneyMix(it) && (
@@ -773,12 +931,26 @@ export default function OrderScreen() {
                     </div>
                     <div style={S.queueItemActions}>
                       <button style={S.iconBtn} onClick={() => editExistingItem(it, order)} title="Edit">✎</button>
-                      <button style={S.recipeBtn} onClick={() => openRecipe(it)} title="Show recipe">
+                      <button
+                        style={expandedItemId === it.itemId ? S.recipeBtnActive : S.recipeBtnSubtle}
+                        onClick={() => setExpandedItemId(
+                          expandedItemId === it.itemId ? null : it.itemId
+                        )}
+                        title="Show recipe"
+                      >
+                        {expandedItemId === it.itemId ? '▼ ' : ''}
                         {lang === 'es' ? 'RECETA' : 'RECIPE'}
                       </button>
                     </div>
                   </div>
                 ))}
+                {/* Inline recipe expansion — render the recipe for whichever
+                    item in THIS order is currently expanded. Sits below the
+                    item rows so the order context stays visible. */}
+                {order.items.some((x) => x.itemId === expandedItemId) && (() => {
+                  const it = order.items.find((x) => x.itemId === expandedItemId);
+                  return renderInlineRecipe(it);
+                })()}
               </div>
 
               {/* orderNote (customer name) lives in the header meta line —
@@ -800,8 +972,10 @@ export default function OrderScreen() {
                         style={{ ...S.cancelBtn, ...(locked ? S.btnDisabled : {}) }}
                         disabled={locked}
                         onClick={() => handleCancelOrder(order)}
+                        title={lang === 'es' ? 'Cancelar' : 'Cancel'}
+                        aria-label={lang === 'es' ? 'Cancelar' : 'Cancel'}
                       >
-                        {lang === 'es' ? 'Cancelar' : 'Cancel'}
+                        ✕
                       </button>
                       <button
                         style={{ ...S.completeBtn, ...(locked ? S.btnDisabled : {}) }}
@@ -1191,145 +1365,6 @@ export default function OrderScreen() {
     );
   };
 
-  // ─── Render: Recipe Modal ────────────────────────────────────────────────
-  const renderRecipeModal = () => {
-    if (!recipeModal) return null;
-    const { drink, size, prep, modifiers = [], note = '' } = recipeModal;
-    const ingredients = drink.ingredients[size] || [];
-    const baseSteps   = drink.buildSteps[prep] || [];
-    const needsHoneyMix = hasColdHoneyMix({ drinkId: drink.id, prepType: prep, modifiers });
-    const steps = needsHoneyMix
-      ? [
-          (lang === 'es'
-            ? '** PRIMERO: Mezcla la bomba extra de miel con espresso CALIENTE en taza separada hasta disolver. NO la pongas directamente sobre hielo. **'
-            : '** FIRST: Mix the extra honey pump with HOT espresso in a separate cup until dissolved. DO NOT pour directly onto ice. **'),
-          ...baseSteps,
-        ]
-      : baseSteps;
-    return (
-      <div style={S.overlay} onClick={() => setRecipeModal(null)}>
-        <div style={{ ...S.modal, maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
-          <div style={S.modalGold}>✦</div>
-          <h3 style={S.modalTitle}>{drink.name}</h3>
-
-          {/* Photo slot — uses drink.photoUrl when set, otherwise a styled placeholder */}
-          {drink.photoUrl ? (
-            <img src={drink.photoUrl} alt={drink.name} style={S.recipePhoto} />
-          ) : (
-            <div style={S.recipePhotoPlaceholder}>
-              <div style={S.recipePhotoTitle}>{drink.name}</div>
-              <div style={S.recipePhotoSub}>{lang === 'es' ? 'Foto pendiente' : 'Photo to come'}</div>
-            </div>
-          )}
-
-          <div style={S.modalSub}>
-            <span style={{ ...S.sizePill, color: PREP_COLORS[prep] }}>{size}</span>
-            <span style={{ ...S.prepPill, color: PREP_COLORS[prep], borderColor: PREP_COLORS[prep] }}>
-              {PREP_LABELS[prep][lang]}
-            </span>
-            <span style={{ marginLeft: 8, color: '#888', fontSize: 12 }}>⏱ {drink.buildTime}</span>
-          </div>
-
-          {(modifiers.length > 0 || note) && (
-            <div style={S.modsCallout}>
-              <div style={S.modsCalloutLabel}>
-                {lang === 'es' ? 'Personalizaciones' : 'Customizations'}
-              </div>
-              <div style={S.modsRow}>
-                {modifiers.map((mid) => (
-                  <span key={mid} style={S.modTagBig}>{getModLabel(mid, lang)}</span>
-                ))}
-                {note && <span style={S.noteTagBig}>📝 {note}</span>}
-              </div>
-            </div>
-          )}
-
-          {needsHoneyMix && (
-            <div style={S.warnCallout}>
-              <div style={S.warnHeader}>⚠ {lang === 'es' ? 'AVISO ESPECIAL' : 'SPECIAL NOTICE'}</div>
-              <div style={S.warnBody}>** {HONEY_WARN[lang] || HONEY_WARN.en} **</div>
-            </div>
-          )}
-
-          <div style={S.recipeBlock}>
-            <div style={S.recipeLabel}>{lang === 'es' ? 'Ingredientes' : 'Ingredients'}</div>
-            {ingredients.map((ing, i) => (
-              <div key={i} style={S.recipeIng}>
-                <span style={{ color: '#D4AF37' }}>·</span> {ing}
-              </div>
-            ))}
-          </div>
-
-          <div style={S.recipeBlock}>
-            <div style={S.recipeLabel}>{lang === 'es' ? 'Pasos' : 'Build Steps'}</div>
-            {steps.map((s, i) => {
-              const done = stepDone.has(i);
-              if (!isTrainee) {
-                return (
-                  <div key={i} style={S.recipeStep}>
-                    <span style={S.recipeStepNum}>{i + 1}</span>
-                    <span>{s}</span>
-                  </div>
-                );
-              }
-              // Trainee gets tap-to-check rows so they can self-pace through
-              // the build. State resets when the modal closes.
-              return (
-                <button
-                  key={i}
-                  onClick={() => {
-                    setStepDone((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(i)) next.delete(i); else next.add(i);
-                      return next;
-                    });
-                  }}
-                  style={{
-                    ...S.recipeStep,
-                    background: done ? 'rgba(76,175,80,0.06)' : 'transparent',
-                    border: 'none',
-                    width: '100%',
-                    textAlign: 'left',
-                    color: 'inherit',
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                    padding: '4px 4px',
-                    borderRadius: 6,
-                  }}
-                >
-                  <span style={{
-                    ...S.recipeStepNum,
-                    background: done ? '#4CAF50' : 'rgba(212,175,55,0.15)',
-                    border: done ? '1px solid #4CAF50' : '1px solid rgba(212,175,55,0.3)',
-                    color: done ? '#0D0D0D' : '#D4AF37',
-                  }}>
-                    {done ? '✓' : i + 1}
-                  </span>
-                  <span style={{
-                    color: done ? '#888' : '#ddd',
-                    textDecoration: done ? 'line-through' : 'none',
-                  }}>
-                    {s}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {drink.tip && (
-            <div style={S.recipeTip}>💡 {drink.tip}</div>
-          )}
-
-          <div style={S.modalActions}>
-            <button style={S.btnGold} onClick={() => setRecipeModal(null)}>
-              {lang === 'es' ? 'Cerrar' : 'Close'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // ─── Main render ─────────────────────────────────────────────────────────
   const queueCount = activeOrders.length;
 
@@ -1381,7 +1416,6 @@ export default function OrderScreen() {
       </div>
 
       {renderPicker()}
-      {renderRecipeModal()}
 
       {/* Inline customer-name editor — opens from tapping the order header */}
       {/* Catering order builder — same drink × N qty, optional scheduled time. */}
@@ -2074,6 +2108,10 @@ const S = {
     borderLeft: '3px solid #D4AF37',
     background: 'rgba(212,175,55,0.04)',
   },
+  // Built (strikethrough): dim the row so the eye skips it on re-glance.
+  queueItemBuilt: {
+    opacity: 0.55,
+  },
   itemWarn: {
     marginTop: 6,
     background: 'rgba(224,82,82,0.12)',
@@ -2105,9 +2143,59 @@ const S = {
     lineHeight: 1.5,
     fontWeight: 600,
   },
-  orderHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  orderNumber: { fontSize: 17, fontWeight: 700, color: '#D4AF37' },
-  orderMeta: { fontSize: 12, color: '#888', marginTop: 2 },
+  orderHeader: {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto 1fr',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  },
+  orderHeaderLeft: { display: 'flex', alignItems: 'center', minWidth: 0 },
+  orderHeaderCenter: { display: 'flex', justifyContent: 'center' },
+  orderHeaderRight: { display: 'flex', justifyContent: 'flex-end', minWidth: 0 },
+  orderNumber: { fontSize: 17, fontWeight: 700, color: '#D4AF37', whiteSpace: 'nowrap' },
+  orderSubMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 10,
+    fontSize: 12,
+  },
+  nextUpBadge: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.10em',
+    color: '#D4AF37',
+    background: 'rgba(212,175,55,0.12)',
+    border: '1px solid #D4AF37',
+    borderRadius: 5,
+    padding: '3px 8px',
+    whiteSpace: 'nowrap',
+  },
+  staleBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#FFB84A',
+    background: 'rgba(255,184,74,0.10)',
+    border: '1px solid #FFB84A',
+    borderRadius: 5,
+    padding: '3px 7px',
+    whiteSpace: 'nowrap',
+  },
+  nameEditChipEmpty: {
+    background: 'transparent',
+    border: '1px dashed rgba(212,175,55,0.30)',
+    borderRadius: 5,
+    padding: '1px 7px',
+    color: '#666',
+    fontSize: 12,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+  },
   progressTag: {
     background: '#0D0D0D',
     border: '1px solid #333',
@@ -2213,6 +2301,99 @@ const S = {
     fontFamily: 'inherit',
     flexShrink: 0,
   },
+  // Subtle outline-only variant for the per-item recipe trigger on KDS tiles.
+  // Less visual weight than the take-order recipe button so it doesn't
+  // compete with Mark Complete for the barista's eye.
+  recipeBtnSubtle: {
+    background: 'transparent',
+    border: '1px solid rgba(212,175,55,0.30)',
+    color: 'rgba(212,175,55,0.85)',
+    borderRadius: 7,
+    padding: '5px 9px',
+    fontWeight: 600,
+    fontSize: 10,
+    letterSpacing: '0.12em',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  },
+  // Active state: filled when the recipe is currently expanded inline.
+  recipeBtnActive: {
+    background: 'rgba(212,175,55,0.20)',
+    border: '1px solid #D4AF37',
+    color: '#D4AF37',
+    borderRadius: 7,
+    padding: '5px 9px',
+    fontWeight: 800,
+    fontSize: 10,
+    letterSpacing: '0.12em',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  },
+  // Inline recipe panel — compact in-tile version of the recipe modal.
+  inlineRecipe: {
+    marginTop: 8,
+    padding: 12,
+    background: '#0D0D0D',
+    border: '1px solid rgba(212,175,55,0.25)',
+    borderRadius: 8,
+  },
+  inlineRecipeHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottom: '1px solid rgba(212,175,55,0.15)',
+  },
+  inlineRecipeTitle: {
+    fontFamily: 'Georgia, serif',
+    fontSize: 14,
+    color: '#D4AF37',
+    fontWeight: 700,
+  },
+  inlineRecipeMeta: {
+    fontSize: 11,
+    color: '#888',
+  },
+  inlineRecipeBlock: { marginBottom: 8 },
+  inlineRecipeLabel: {
+    fontSize: 10,
+    color: '#888',
+    letterSpacing: '0.10em',
+    textTransform: 'uppercase',
+    fontWeight: 700,
+    marginBottom: 4,
+  },
+  inlineRecipeIng: { fontSize: 12, color: '#ddd', lineHeight: 1.5, paddingLeft: 4 },
+  inlineRecipeStep: {
+    display: 'flex',
+    gap: 8,
+    alignItems: 'flex-start',
+    fontSize: 12,
+    lineHeight: 1.5,
+    marginBottom: 3,
+  },
+  inlineRecipeStepNum: {
+    background: 'rgba(212,175,55,0.15)',
+    border: '1px solid rgba(212,175,55,0.3)',
+    color: '#D4AF37',
+    borderRadius: 4,
+    width: 18, height: 18,
+    fontSize: 10,
+    fontWeight: 800,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  inlineRecipeTip: {
+    marginTop: 4,
+    fontSize: 11,
+    color: '#FFB84A',
+    fontStyle: 'italic',
+  },
   itemList: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 },
   queueItem: {
     display: 'flex',
@@ -2238,20 +2419,28 @@ const S = {
     fontSize: 14,
     flexShrink: 0,
   },
-  orderActions: { display: 'flex', gap: 8 },
+  orderActions: { display: 'flex', gap: 8, alignItems: 'stretch' },
+  // Cancel is now an icon-only button so it doesn't compete with Mark Complete
+  // for visual weight. Touch target stays 44px tall to meet iOS guidelines.
   cancelBtn: {
-    flex: 1,
+    flex: '0 0 auto',
+    width: 44,
     background: 'transparent',
     border: '1px solid #555',
     color: '#888',
     borderRadius: 8,
-    padding: '10px',
+    padding: '0',
     fontWeight: 600,
-    fontSize: 13,
+    fontSize: 18,
     cursor: 'pointer',
+    minHeight: 44,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'inherit',
   },
   completeBtn: {
-    flex: 2,
+    flex: 1,
     background: '#D4AF37',
     color: '#0D0D0D',
     border: 'none',
@@ -2260,6 +2449,7 @@ const S = {
     fontWeight: 800,
     fontSize: 14,
     cursor: 'pointer',
+    minHeight: 44,
   },
 
   // Empty state
@@ -2362,6 +2552,45 @@ const S = {
   },
 
   // Modifier tags + section
+  // Gold-bordered MODS frame — replaces the inline mod row so modifiers
+  // can't be missed at a glance. Renders only when an item has modifiers
+  // or a free-text note.
+  modsFrame: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 6,
+    padding: '6px 10px',
+    background: 'rgba(212,175,55,0.08)',
+    border: '1px solid rgba(212,175,55,0.55)',
+    borderRadius: 6,
+  },
+  modsFrameLabel: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.10em',
+    color: '#D4AF37',
+    whiteSpace: 'nowrap',
+    paddingTop: 2,
+  },
+  modsFrameContent: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 5,
+    flex: 1,
+  },
+  modTagBold: {
+    fontSize: 12,
+    color: '#F5E4A8',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  },
+  noteTagBold: {
+    fontSize: 12,
+    color: '#F5E4A8',
+    fontStyle: 'italic',
+    fontWeight: 600,
+  },
   modsRow: {
     display: 'flex',
     flexWrap: 'wrap',

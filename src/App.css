@@ -142,6 +142,17 @@ body::before {
   100% { transform: scale(1);    }
 }
 
+/* Special-order pulse — runs for ~5 seconds when a new ticket with a
+   honey-mix warning lands so it can't be missed during a rush, then
+   stops so the static banner doesn't burn into the eye. */
+@keyframes quezSpecialPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 82, 82, 0.0); }
+  50%      { box-shadow: 0 0 0 8px rgba(224, 82, 82, 0.35); }
+}
+.quez-special-pulse {
+  animation: quezSpecialPulse 0.8s ease-in-out 0s 6;
+}
+
 /* Subtle elevation indicator on top of active tab */
 .app-nav-tab--active::before {
   content: '';
