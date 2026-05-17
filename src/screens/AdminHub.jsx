@@ -69,7 +69,7 @@ export default function AdminHub() {
         { route: 'settings:employees', icon: '👥',
           title: lang === 'es' ? 'Empleados' : 'Employees',
           desc:  lang === 'es' ? 'Agregar · editar · roles · PINs · salarios' : 'Add · edit · roles · PINs · wages' },
-        { route: 'settings:training', icon: '🎯', ownerOnly: true,
+        { route: 'settings:training', icon: '🎯',
           title: lang === 'es' ? 'Ajustes de Entrenamiento' : 'Training Settings',
           desc:  lang === 'es' ? 'Bypass para demos · pasos de aprobación' : 'Demo bypass · approval flow' },
       ],

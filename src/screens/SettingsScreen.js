@@ -56,10 +56,16 @@ const S = {
   thumb:{position:'absolute',top:3,left:3,width:20,height:20,background:'white',borderRadius:'50%',transition:'transform 0.2s',pointerEvents:'none'},
 };
 
-function Toggle({checked, onChange}) {
+function Toggle({checked, onChange, disabled}) {
   return (
-    <label style={S.toggle}>
-      <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} style={{position:'absolute',opacity:0,width:0,height:0}} />
+    <label style={{...S.toggle, ...(disabled ? { opacity: 0.55, cursor: 'not-allowed' } : {})}}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={e=>!disabled && onChange(e.target.checked)}
+        style={{position:'absolute',opacity:0,width:0,height:0}}
+      />
       <span style={{...S.trackBase, background: checked ? '#D4AF37' : '#3A3A3A'}} />
       <span style={{...S.thumb, transform: checked ? 'translateX(20px)' : 'none'}} />
     </label>
@@ -1166,7 +1172,14 @@ export default function SettingsScreen({ initialSection = 'employees', singleSec
 
         {/* TRAINING BYPASS */}
         <Section id="training" icon="🎓" title="Training Settings" expanded={visibleSection==='training'} onToggle={toggleSection} singleMode={singleSection}>
-          <div style={{...S.note,marginBottom:12}}>Bypass skips all training phases and immediately grants the assigned role.</div>
+          <div style={{...S.note,marginBottom:12}}>
+            Bypass skips all training phases and immediately grants the assigned role.
+            {!viewerIsOwner && (
+              <span style={{display:'block',marginTop:4,color:'#888',fontSize:11,fontStyle:'italic'}}>
+                Viewing as Manager — bypass toggles are read-only for audit reasons. Ask the owner to change.
+              </span>
+            )}
+          </div>
           {employees.filter(e=>e.active&&e.role!=='owner').map(emp=>(
             <div key={emp.id} style={S.row}>
               <div style={{width:30,height:30,borderRadius:'50%',background:'#2A2A2A',border:`1px solid ${ROLE_COLORS[emp.role]||'#888'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:ROLE_COLORS[emp.role]||'#888',flexShrink:0}}>
@@ -1178,7 +1191,7 @@ export default function SettingsScreen({ initialSection = 'employees', singleSec
               </div>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <span style={{fontSize:12,color:emp.trainingBypass?'#C88B4B':'#666'}}>{emp.trainingBypass?'Bypassed':'Required'}</span>
-                <Toggle checked={!!emp.trainingBypass} onChange={v=>setTrainingBypass(emp.id,v)} />
+                <Toggle checked={!!emp.trainingBypass} onChange={v=>setTrainingBypass(emp.id,v)} disabled={!viewerIsOwner} />
               </div>
             </div>
           ))}
